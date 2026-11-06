@@ -7,24 +7,174 @@ use tree_sitter::Node;
 pub struct Config {
     /// Column (0-based) where tag values start.
     pub tag_column: usize,
-    /// Maximum line width used when wrapping dependency tags.
-    pub wrap_width: usize,
+    /// Maximum line width used for wrapping.
+    pub max_width: usize,
     /// Sort values of consecutive tags with the same name.
     pub sort: bool,
     /// Wrap long dependency tag lines.
     pub wrap: bool,
     /// Replace leading tabs in scriptlet bodies with four spaces.
     pub reindent: bool,
+    /// Re-wrap text in `%description` sections.
+    pub wrap_description: bool,
+    /// Rewrite paths in `%files` sections with macros.
+    pub convert_paths: bool,
+    /// Path prefixes and their macro replacements, longest prefix first.
+    pub path_macros: Vec<(String, String)>,
 }
+
+pub const DEFAULT_PATH_MACROS: &[(&str, &str)] = &[
+    // Common top-level paths.
+    ("/etc", "%{_sysconfdir}"),
+    ("/run", "%{_rundir}"),
+    ("/usr", "%{_prefix}"),
+    ("/var", "%{_localstatedir}"),
+    // /etc
+    ("/etc/fonts", "%{_fontconfig_masterdir}"),
+    ("/etc/fonts/conf.d", "%{_fontconfig_confdir}"),
+    ("/etc/java", "%{_javaconfdir}"),
+    ("/etc/jvm", "%{_jvmsysconfdir}"),
+    ("/etc/jvm-common", "%{_jvmcommonsysconfdir}"),
+    ("/etc/pam.d", "%{_pam_confdir}"),
+    ("/etc/rc.d/init.d", "%{_initddir}"),
+    ("/etc/security", "%{_pam_secconfdir}"),
+    // /usr
+    ("/usr/bin", "%{_bindir}"),
+    ("/usr/sbin", "%{_sbindir}"),
+    ("/usr/src", "%{_usrsrc}"),
+    ("/usr/include", "%{_includedir}"),
+    ("/usr/include/d", "%{_d_includedir}"),
+    ("/usr/lib64", "%{_libdir}"),
+    ("/usr/lib64/gfortran/modules", "%{_fmoddir}"),
+    ("/usr/lib64/ocaml", "%{ocamldir}"),
+    ("/usr/lib64/pkgconfig", "%{_pkgconfigdir}"),
+    ("/usr/lib64/security", "%{_pam_moduledir}"),
+    ("/usr/lib/binfmt.d", "%{_binfmtdir}"),
+    ("/usr/lib/environment.d", "%{_environmentdir}"),
+    ("/usr/lib/java", "%{_jnidir}"),
+    ("/usr/lib/jvm", "%{_jvmdir}"),
+    ("/usr/lib/jvm-common", "%{_jvmcommonlibdir}"),
+    ("/usr/lib/jvm-private", "%{_jvmprivdir}"),
+    ("/usr/lib/kernel/install.d", "%{_kernel_install_dir}"),
+    ("/usr/lib/modprobe.d", "%{_modprobedir}"),
+    ("/usr/lib/modules-load.d", "%{_modulesloaddir}"),
+    ("/usr/lib/mono", "%{_monodir}"),
+    ("/usr/lib/mono/gac", "%{_monogacdir}"),
+    ("/usr/lib/rpm", "%{_rpmconfigdir}"),
+    ("/usr/lib/rpm/fileattrs", "%{_fileattrsdir}"),
+    ("/usr/lib/rpm/lua", "%{_rpmluadir}"),
+    ("/usr/lib/rpm/macros.d", "%{_rpmmacrodir}"),
+    ("/usr/lib/sysctl.d", "%{_sysctldir}"),
+    ("/usr/lib/sysusers.d", "%{_sysusersdir}"),
+    ("/usr/lib/swidtag/fedoraproject.org", "%{_swidtagdir}"),
+    ("/usr/lib/systemd", "%{_systemd_util_dir}"),
+    ("/usr/lib/systemd/catalog", "%{_journalcatalogdir}"),
+    ("/usr/lib/systemd/system", "%{_unitdir}"),
+    (
+        "/usr/lib/systemd/system-generators",
+        "%{_systemdgeneratordir}",
+    ),
+    ("/usr/lib/systemd/system-preset", "%{_presetdir}"),
+    (
+        "/usr/lib/systemd/system-environment-generators",
+        "%{_systemd_system_env_generator_dir}",
+    ),
+    ("/usr/lib/systemd/user", "%{_userunitdir}"),
+    (
+        "/usr/lib/systemd/user-generators",
+        "%{_systemdusergeneratordir}",
+    ),
+    ("/usr/lib/systemd/user-preset", "%{_userpresetdir}"),
+    (
+        "/usr/lib/systemd/user-environment-generators",
+        "%{_systemd_user_env_generator_dir}",
+    ),
+    ("/usr/lib/tmpfiles.d", "%{_tmpfilesdir}"),
+    ("/usr/lib/udev/hwdb.d", "%{_udevhwdbdir}"),
+    ("/usr/lib/udev/rules.d", "%{_udevrulesdir}"),
+    ("/usr/libexec", "%{_libexecdir}"),
+    ("/usr/libexec/perl5-tests", "%{perl_testdir}"),
+    // /usr/share
+    ("/usr/share", "%{_datadir}"),
+    ("/usr/share/applications", "%{_appsdir}"),
+    (
+        "/usr/share/bash-completion/completions",
+        "%{bash_completions_dir}",
+    ),
+    ("/usr/share/color", "%{_colordir}"),
+    ("/usr/share/color/cmms", "%{_cmmscolordir}"),
+    ("/usr/share/color/icc", "%{_icccolordir}"),
+    ("/usr/share/color/settings", "%{_settingscolordir}"),
+    ("/usr/share/doc", "%{_docdir}"),
+    (
+        "/usr/share/elvish/lib/completions",
+        "%{elvish_completions_dir}",
+    ),
+    (
+        "/usr/share/fish/vendor_completions.d",
+        "%{fish_completions_dir}",
+    ),
+    ("/usr/share/fonts", "%{_fontbasedir}"),
+    (
+        "/usr/share/fontconfig/conf.avail",
+        "%{_fontconfig_templatedir}",
+    ),
+    (
+        "/usr/share/gnome-shell/extensions",
+        "%{_gnomeextensionsdir}",
+    ),
+    ("/usr/share/icons", "%{_iconsdir}"),
+    ("/usr/share/icons/hicolor", "%{_hicolordir}"),
+    (
+        "/usr/share/icons/hicolor/scalable/apps",
+        "%{_scalableiconsdir}",
+    ),
+    ("/usr/share/info", "%{_infodir}"),
+    ("/usr/share/ivy-xmls", "%{_ivyxmldir}"),
+    ("/usr/share/java", "%{_javadir}"),
+    ("/usr/share/javadoc", "%{_javadocdir}"),
+    ("/usr/share/jvm", "%{_jvmdatadir}"),
+    ("/usr/share/jvm-common", "%{_jvmcommondatadir}"),
+    ("/usr/share/licenses", "%{_defaultlicensedir}"),
+    ("/usr/share/man", "%{_mandir}"),
+    ("/usr/share/maven-poms", "%{_mavenpomdir}"),
+    ("/usr/share/metainfo", "%{_metainfodir}"),
+    (
+        "/usr/share/nushell/vendor/autoload",
+        "%{nushell_completions_dir}",
+    ),
+    ("/usr/share/pam.d", "%{_pam_vendordir}"),
+    (
+        "/usr/share/pkgconfig/personality.d",
+        "%{pkgconfig_personalitydir}",
+    ),
+    ("/usr/share/systemtap/tapset", "%{_systemtap_tapsetdir}"),
+    ("/usr/share/user-tmpfiles.d", "%{_user_tmpfilesdir}"),
+    ("/usr/share/zsh/site-functions", "%{zsh_completions_dir}"),
+    // /var
+    ("/var/lib", "%{_sharedstatedir}"),
+    // EFI
+    ("/boot/efi/EFI", "%{efi_esp_efi}"),
+    ("/boot/efi/EFI/fedora", "%{efi_esp_dir}"),
+];
 
 impl Default for Config {
     fn default() -> Self {
+        let mut path_macros: Vec<(String, String)> = DEFAULT_PATH_MACROS
+            .iter()
+            .map(|(from, to)| (from.to_string(), to.to_string()))
+            .collect();
+        path_macros.sort_by_key(|(prefix, _)| std::cmp::Reverse(prefix.len()));
+
         Self {
             tag_column: 16,
-            wrap_width: 100,
+            max_width: 100,
             sort: true,
             wrap: true,
             reindent: true,
+            wrap_description: false,
+            convert_paths: false,
+            path_macros,
         }
     }
 }
@@ -33,9 +183,15 @@ impl Default for Config {
 enum Kind {
     Other = 0,
     Body = 1,
-    SectionHeader = 2,
-    Tag = 3,
-    Skip = 4,
+    DescriptionBody = 2,
+    FilesBody = 3,
+    SectionHeader = 4,
+    Tag = 5,
+    Skip = 6,
+}
+
+fn is_body(kind: Kind) -> bool {
+    matches!(kind, Kind::Body | Kind::DescriptionBody | Kind::FilesBody)
 }
 
 const SECTION_KINDS: &[&str] = &[
@@ -141,11 +297,25 @@ pub fn format(source: &str, cfg: &Config) -> Result<String> {
                 };
                 line.trim_end().to_string()
             }
+            Kind::DescriptionBody => line.trim_end().to_string(),
+            Kind::FilesBody => {
+                let line = if cfg.convert_paths {
+                    convert_paths_in_line(line, &cfg.path_macros)
+                } else {
+                    line.clone()
+                };
+                line.trim_end().to_string()
+            }
             _ => line.trim_end().to_string(),
         };
         rows.push((kind, text));
     }
 
+    let rows = if cfg.wrap_description {
+        wrap_descriptions(rows, cfg.max_width)
+    } else {
+        rows
+    };
     let rows = apply_spacing(rows);
     let mut out: Vec<&str> = rows.iter().map(|(_, text)| text.as_str()).collect();
     while out.last().is_some_and(|line| line.is_empty()) {
@@ -181,8 +351,13 @@ fn walk(node: Node<'_>, kinds: &mut [Kind]) {
         }
 
         set_kind(kinds, start, Kind::SectionHeader);
+        let body_kind = match kind {
+            "description" => Kind::DescriptionBody,
+            "files" => Kind::FilesBody,
+            _ => Kind::Body,
+        };
         for row in (start + 1)..=last {
-            set_kind(kinds, row, Kind::Body);
+            set_kind(kinds, row, body_kind);
         }
     }
 
@@ -208,10 +383,10 @@ fn mark_skip(kinds: &mut [Kind], start: usize, end: usize) {
 fn mark_heredocs(lines: &[String], kinds: &mut [Kind]) {
     let mut i = 0;
     while i < lines.len() {
-        if kinds[i] == Kind::Body {
+        if is_body(kinds[i]) {
             if let Some(delim) = heredoc_delim(&lines[i]) {
                 let mut j = i + 1;
-                while j < lines.len() && kinds[j] == Kind::Body {
+                while j < lines.len() && is_body(kinds[j]) {
                     kinds[j] = Kind::Skip;
                     if lines[j].trim() == delim {
                         break;
@@ -383,7 +558,7 @@ fn wrap_tokens(tag: &str, tokens: &[String], cfg: &Config) -> Vec<String> {
     for token in tokens {
         if current.is_empty() {
             current.push_str(token);
-        } else if prefix + current.len() + 1 + token.len() <= cfg.wrap_width {
+        } else if prefix + current.len() + 1 + token.len() <= cfg.max_width {
             current.push(' ');
             current.push_str(token);
         } else {
@@ -478,8 +653,8 @@ fn apply_spacing(rows: Vec<(Kind, String)>) -> Vec<(Kind, String)> {
             while j < trimmed.len() && trimmed[j].1.is_empty() {
                 j += 1;
             }
-            let prev_body = out.last().is_some_and(|(kind, _)| *kind == Kind::Body);
-            let next_body = trimmed.get(j).is_some_and(|(kind, _)| *kind == Kind::Body);
+            let prev_body = out.last().is_some_and(|(kind, _)| is_body(*kind));
+            let next_body = trimmed.get(j).is_some_and(|(kind, _)| is_body(*kind));
             let keep = if prev_body || next_body { j - i } else { 1 };
             for _ in 0..keep {
                 out.push((Kind::Other, String::new()));
@@ -496,6 +671,123 @@ fn apply_spacing(rows: Vec<(Kind, String)>) -> Vec<(Kind, String)> {
     }
 
     out
+}
+
+/// Re-flow long lines in `%description` bodies.
+///
+/// Each line is wrapped on its own, so existing line breaks are never joined.
+/// Blank lines, indentation and `*` / `-` / `+` bullets are kept, which also
+/// makes the result idempotent.
+fn wrap_descriptions(rows: Vec<(Kind, String)>, max_width: usize) -> Vec<(Kind, String)> {
+    if max_width == 0 {
+        return rows;
+    }
+
+    let mut out = Vec::with_capacity(rows.len());
+    for (kind, text) in rows {
+        if kind != Kind::DescriptionBody || text.trim().is_empty() {
+            out.push((kind, text));
+            continue;
+        }
+        for line in wrap_description_line(&text, max_width) {
+            out.push((Kind::DescriptionBody, line));
+        }
+    }
+    out
+}
+
+fn wrap_description_line(line: &str, max_width: usize) -> Vec<String> {
+    if line.chars().count() <= max_width {
+        return vec![line.to_string()];
+    }
+
+    let trimmed = line.trim_start();
+    let indent = &line[..line.len() - trimmed.len()];
+    let (bullet, body) = if let Some(rest) = trimmed.strip_prefix("* ") {
+        ("* ", rest)
+    } else if let Some(rest) = trimmed.strip_prefix("- ") {
+        ("- ", rest)
+    } else if let Some(rest) = trimmed.strip_prefix("+ ") {
+        ("+ ", rest)
+    } else {
+        ("", trimmed)
+    };
+
+    let first_prefix = format!("{indent}{bullet}");
+    let cont_prefix = " ".repeat(first_prefix.chars().count());
+
+    let mut out = Vec::new();
+    let mut current = String::new();
+    let mut current_prefix = first_prefix;
+
+    for word in body.split_whitespace() {
+        let separator = usize::from(!current.is_empty());
+        let projected = current_prefix.chars().count()
+            + current.chars().count()
+            + separator
+            + word.chars().count();
+
+        if current.is_empty() {
+            current.push_str(word);
+        } else if projected <= max_width {
+            current.push(' ');
+            current.push_str(word);
+        } else {
+            out.push(format!("{current_prefix}{current}"));
+            current_prefix = cont_prefix.clone();
+            current.clear();
+            current.push_str(word);
+        }
+    }
+
+    if !current.is_empty() {
+        out.push(format!("{current_prefix}{current}"));
+    }
+    if out.is_empty() {
+        vec![line.to_string()]
+    } else {
+        out
+    }
+}
+
+/// Replace leading path prefixes in a `%files` line with macros.
+fn convert_paths_in_line(line: &str, macros: &[(String, String)]) -> String {
+    if line.trim_start().starts_with('#') {
+        return line.to_string();
+    }
+
+    let mut out = String::with_capacity(line.len());
+    let mut rest = line;
+    while let Some(start) = rest.find(|c: char| !c.is_whitespace()) {
+        let (space, tail) = rest.split_at(start);
+        out.push_str(space);
+
+        let end = tail.find(char::is_whitespace).unwrap_or(tail.len());
+        let (token, tail) = tail.split_at(end);
+        out.push_str(&convert_path_token(token, macros));
+        rest = tail;
+    }
+    out.push_str(rest);
+    out
+}
+
+fn convert_path_token(token: &str, macros: &[(String, String)]) -> String {
+    // Quoted paths may contain spaces, so leave them alone.
+    if token.starts_with('"') || token.starts_with('\'') {
+        return token.to_string();
+    }
+
+    for (from, to) in macros {
+        if token == from {
+            return to.clone();
+        }
+        if let Some(suffix) = token.strip_prefix(from) {
+            if suffix.starts_with('/') {
+                return format!("{to}{suffix}");
+            }
+        }
+    }
+    token.to_string()
 }
 
 #[cfg(test)]
@@ -546,7 +838,7 @@ mod tests {
     fn wraps_long_dependency_lines() {
         let src = "Name: x\n\nBuildRequires: alpha bravo charlie delta echo foxtrot golf hotel india juliet\n";
         let cfg = Config {
-            wrap_width: 40,
+            max_width: 40,
             ..Config::default()
         };
         let out = format(src, &cfg).unwrap();
@@ -597,5 +889,67 @@ mod tests {
     fn removes_trailing_whitespace_and_adds_final_newline() {
         let out = format("Name:   x   ", &Config::default()).unwrap();
         assert_eq!(out, "Name:           x\n");
+    }
+
+    #[test]
+    fn wraps_description_lines() {
+        let src = "Name: x\n\n%description\nThis is a very long line of text that should be wrapped at a narrow width.\n\n* A bullet item that is also long enough to wrap onto a second line.\n";
+        let cfg = Config {
+            max_width: 40,
+            wrap_description: true,
+            ..Config::default()
+        };
+        let out = format(src, &cfg).unwrap();
+        for line in out.lines() {
+            assert!(line.chars().count() <= 40, "{line}");
+        }
+        assert!(out.contains("This is a very long line of text that"));
+        assert!(out.contains("\n\n* A bullet item"), "{out}");
+        assert_eq!(format(&out, &cfg).unwrap(), out);
+    }
+
+    #[test]
+    fn description_wrapping_is_off_by_default() {
+        let src = "Name: x\n\n%description\nThis is a very long line of text that should stay on one line.\n";
+        let out = format(src, &Config::default()).unwrap();
+        assert!(out.contains("This is a very long line of text that should stay on one line."));
+    }
+
+    #[test]
+    fn converts_paths_in_files_only() {
+        let src = "Name: x\n\n%description\n/usr/share/keep\n\n%files\n/usr/bin/foo\n%{_datadir}/already\n/usr/lib/systemd/system/foo.service\n/etc/foo.conf\n/usr/share/doc/pkg/README\n/usr/share/man/man1/foo.1\n/usr/lib64/pkgconfig/foo.pc\n/var/lib/foo\n/usr/local/foo\n/usr/sharefoo/keep\n\n%changelog\n* Sat Nov 07 2026 Tester <t@example.com> - 1\n- Initial\n";
+        let cfg = Config {
+            convert_paths: true,
+            ..Config::default()
+        };
+        let out = format(src, &cfg).unwrap();
+        assert!(out.contains("%{_bindir}/foo"), "{out}");
+        assert!(out.contains("%{_datadir}/already"), "{out}");
+        assert!(out.contains("%{_unitdir}/foo.service"), "{out}");
+        assert!(out.contains("%{_sysconfdir}/foo.conf"), "{out}");
+        assert!(out.contains("%{_docdir}/pkg/README"), "{out}");
+        assert!(out.contains("%{_mandir}/man1/foo.1"), "{out}");
+        assert!(out.contains("%{_pkgconfigdir}/foo.pc"), "{out}");
+        assert!(out.contains("%{_sharedstatedir}/foo"), "{out}");
+        assert!(out.contains("%{_prefix}/local/foo"), "{out}");
+        // The /usr/share prefix must not match /usr/sharefoo.
+        assert!(out.contains("%{_prefix}/sharefoo/keep"), "{out}");
+        assert!(!out.contains("%{_datadir}sharefoo"), "{out}");
+        assert!(out.contains("%description\n/usr/share/keep"), "{out}");
+        assert_eq!(format(&out, &cfg).unwrap(), out);
+    }
+
+    #[test]
+    fn keeps_comments_and_quoted_paths_in_files() {
+        let src =
+            "Name: x\n\n%files\n# /usr/share/comment\n\"/usr/share/with space\"\n/usr/bin/foo\n";
+        let cfg = Config {
+            convert_paths: true,
+            ..Config::default()
+        };
+        let out = format(src, &cfg).unwrap();
+        assert!(out.contains("# /usr/share/comment"), "{out}");
+        assert!(out.contains("\"/usr/share/with space\""), "{out}");
+        assert!(out.contains("%{_bindir}/foo"), "{out}");
     }
 }

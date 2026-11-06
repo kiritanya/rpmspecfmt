@@ -6,6 +6,7 @@ use anyhow::{Context, Result};
 use clap::Parser;
 use similar::TextDiff;
 
+use rpmspecfmt::config::FileConfig;
 use rpmspecfmt::{format, Config};
 
 #[derive(Debug, Parser)]
@@ -47,13 +48,17 @@ struct Args {
     #[arg(long)]
     no_reindent: bool,
 
-    /// Column where tag values start.
-    #[arg(long, default_value_t = 16)]
-    tag_column: usize,
+    /// Config file to read. Searches upwards for .rpmspecfmt.toml when omitted.
+    #[arg(long, value_name = "PATH")]
+    config: Option<PathBuf>,
 
-    /// Maximum line width for wrapped dependency tags.
-    #[arg(long, default_value_t = 100)]
-    wrap_width: usize,
+    /// Column where tag values start.
+    #[arg(long)]
+    tag_column: Option<usize>,
+
+    /// Maximum line width for wrapping.
+    #[arg(long, visible_alias = "wrap-width")]
+    max_width: Option<usize>,
 }
 
 fn main() {
@@ -65,14 +70,7 @@ fn main() {
 
 fn run() -> Result<()> {
     let args = Args::parse();
-
-    let cfg = Config {
-        tag_column: args.tag_column,
-        wrap_width: args.wrap_width,
-        sort: !args.safe && !args.no_sort,
-        wrap: !args.safe && !args.no_wrap,
-        reindent: !args.safe && !args.no_reindent,
-    };
+    let cfg = build_config(&args)?;
 
     if args.files.is_empty() {
         let mut src = String::new();
@@ -114,6 +112,43 @@ fn run() -> Result<()> {
     }
 
     Ok(())
+}
+
+fn build_config(args: &Args) -> Result<Config> {
+    let mut cfg = Config::default();
+
+    if let Some(path) = &args.config {
+        FileConfig::load(path)?.apply(&mut cfg);
+    } else if let Some(path) = FileConfig::find() {
+        FileConfig::load(&path)?.apply(&mut cfg);
+    }
+
+    if let Some(value) = args.tag_column {
+        cfg.tag_column = value;
+    }
+    if let Some(value) = args.max_width {
+        cfg.max_width = value;
+    }
+
+    if args.safe {
+        cfg.sort = false;
+        cfg.wrap = false;
+        cfg.reindent = false;
+        cfg.wrap_description = false;
+        cfg.convert_paths = false;
+    } else {
+        if args.no_sort {
+            cfg.sort = false;
+        }
+        if args.no_wrap {
+            cfg.wrap = false;
+        }
+        if args.no_reindent {
+            cfg.reindent = false;
+        }
+    }
+
+    Ok(cfg)
 }
 
 fn process_stdin(src: &str, cfg: &Config, args: &Args) -> Result<()> {

@@ -1,3 +1,4 @@
+pub mod config;
 mod format;
 mod parse;
 

@@ -8,6 +8,8 @@ license = "AGPL-3.0-or-later"
 [dependencies]
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
 similar = "2"
+toml = "0.8"
 tree-sitter = "0.26"
 tree-sitter-rpmspec = { git = "https://github.com/kiritanya/tree-sitter-rpmspec", rev = "0166fc90271150ec93bb6168d58672a60f5a6a50" }
