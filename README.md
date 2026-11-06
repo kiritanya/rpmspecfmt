@@ -33,12 +33,52 @@ rpmspecfmt < foo.spec            # stdin to stdout
 | `--no-sort` | keep the order of tags with the same name |
 | `--no-wrap` | do not wrap long dependency tags |
 | `--no-reindent` | do not expand leading tabs in scriptlet bodies |
+| `--config PATH` | read this config file instead of searching for one |
 | `--tag-column N` | column where tag values start (default 16) |
-| `--wrap-width N` | width for wrapped dependency tags (default 100) |
+| `--max-width N` | width for wrapping (default 100; alias `--wrap-width`) |
+
+## Configuration
+
+The formatter reads the first `.rpmspecfmt.toml` it finds in the current
+directory or one of its parents. Use `--config PATH` to pick a file directly.
+Command line options override the file, and `--safe` turns off every change
+that is not whitespace.
+
+```toml
+tag_column = 16
+max_width = 80
+sort = true
+wrap = true
+reindent = true
+wrap_description = true
+convert_paths = true
+
+[path_macros]
+"/opt/example" = "%{_prefix}/opt/example"
+```
+
+`wrap_description` re-flows long lines in `%description` at `max_width`.
+It keeps blank lines, indentation and `*` / `-` / `+` bullets.
+
+`convert_paths` replaces leading paths in `%files` with macros. The default
+table covers the Paths section of the Terra RPM macro docs, for example:
+
+```spec
+/usr/share/foo             -> %{_datadir}/foo
+/usr/share/doc/foo         -> %{_docdir}/foo
+/usr/lib/systemd/system/x  -> %{_unitdir}/x
+/var/lib/foo               -> %{_sharedstatedir}/foo
+```
+
+Some entries use macros from `anda-srpm-macros` (Terra only). Entries in
+`[path_macros]` are added to the default table, and the longest prefix wins.
+A path like `/usr/share/doc/%{name}` still matches the literal
+`/usr/share/doc` prefix, so it becomes `%{_docdir}/%{name}`.
+Comment lines and quoted paths are not changed.
 
 ## What it changes
 
-- Tag values are aligned at column 16.
+- Tag values are aligned at `tag_column` (16 by default).
 - Consecutive tags with the same name are sorted.
   Dependency tags (`BuildRequires`, `Requires`, ...) are sorted by dependency
   token and wrapped. Other tags are sorted by value.
@@ -50,6 +90,8 @@ rpmspecfmt < foo.spec            # stdin to stdout
 - Runs of blank lines are collapsed outside description and scriptlet bodies.
 - Trailing spaces are removed, and the file ends with one newline.
 - Leading tabs in scriptlet bodies become four spaces.
+- If enabled in the config, long `%description` lines are wrapped and leading
+  paths in `%files` become macros.
 
 ## What it leaves alone
 
