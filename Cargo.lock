@@ -347,6 +347,7 @@ checksum = "d0af592be68c579aa78a16846bd19422978c3c52e438523d45ff5d1bff1f9d4a"
 [[package]]
 name = "tree-sitter-rpmspec"
 version = "0.0.1"
+source = "git+https://github.com/kiritanya/tree-sitter-rpmspec?rev=0166fc90271150ec93bb6168d58672a60f5a6a50#0166fc90271150ec93bb6168d58672a60f5a6a50"
 dependencies = [
  "cc",
  "tree-sitter-language",

@@ -9,13 +9,13 @@ spec structure, but it never expands macros.
 cargo build --release
 ```
 
-The parser comes from the fork at `../tree-sitter-rpmspec`:
+The parser comes from
+[kiritanya/tree-sitter-rpmspec](https://github.com/kiritanya/tree-sitter-rpmspec),
+pinned to a revision:
 
 ```toml
-tree-sitter-rpmspec = { path = "../tree-sitter-rpmspec" }
+tree-sitter-rpmspec = { git = "https://github.com/kiritanya/tree-sitter-rpmspec", rev = "0166fc90271150ec93bb6168d58672a60f5a6a50" }
 ```
-
-You can switch this to a git dependency after the fork is pushed.
 
 ## Usage
 
