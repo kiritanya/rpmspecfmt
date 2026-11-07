@@ -1,7 +1,7 @@
 # rpmspecfmt
 
-A formatter for RPM `.spec` files. It uses tree-sitter, so it understands the
-spec structure, but it never expands macros.
+A formatter for RPM `.spec` files, plus a small linter. It uses tree-sitter, so
+it understands the spec structure, but it never expands macros.
 
 ## Build
 
@@ -75,6 +75,34 @@ Some entries use macros from `anda-srpm-macros` (Terra only). Entries in
 A path like `/usr/share/doc/%{name}` still matches the literal
 `/usr/share/doc` prefix, so it becomes `%{_docdir}/%{name}`.
 Comment lines and quoted paths are not changed.
+
+## Linter
+
+`rpmspeclint` is a separate binary for semantic checks. It never rewrites files.
+It reads tags line by line, so it still works when the grammar reports errors.
+
+```sh
+rpmspeclint foo.spec
+rpmspeclint < foo.spec
+```
+
+It prints one line per finding:
+
+```
+foo.spec:6:23: warning: use %{evr} instead of %{version}-%{release} [use-evr]
+```
+
+| Rule | What it looks for |
+| --- | --- |
+| `missing-changelog` | no `%changelog` or `%autochangelog` |
+| `missing-license` | no `License:` tag |
+| `use-evr` | `%{version}-%{release}` or `%version-%release` in dependency tags |
+| `use-autosetup` | `%setup`; `%autosetup` is preferred |
+
+`use-evr` needs the `%{evr}` macro. On Terra it comes from
+`anda-srpm-macros`.
+
+Exit status: 0 means no findings, 1 means findings, 2 means a read error.
 
 ## What it changes
 
