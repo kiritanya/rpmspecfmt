@@ -28,7 +28,8 @@ impl Rule for UseAutosetup {
                     .skip(1)
                     .any(|arg| matches!(arg, "-T" | "-D" | "-a" | "-b"))
         });
-        Ok(line
-            .map_or_default(|line| vec![self.finding(support::directive_span(context, line), None)]))
+        Ok(line.map_or_default(|line| {
+            vec![self.finding(support::directive_span(context, line), None)]
+        }))
     }
 }
