@@ -1,15 +1,43 @@
 [package]
 name = "rpmspecfmt"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 description = "Formatter for RPM spec files"
 license = "AGPL-3.0-or-later"
+repository = "https://github.com/kiritanya/rpmspecfmt"
+keywords = ["rpm", "spec", "formatter", "lint"]
+categories = ["command-line-utilities", "development-tools"]
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+nursery = { level = "warn", priority = -1 }
+cargo = { level = "warn", priority = -1 }
+
+# CLI and Config intentionally hold independent feature flags.
+struct_excessive_bools = "allow"
+# `pub(crate)` documents crate-wide use even inside a private module.
+redundant_pub_crate = "allow"
+# Transitive crates pull in both syn 2 and syn 3.
+multiple_crate_versions = "allow"
 
 [dependencies]
-anyhow = "1"
+ariadne = "0.6"
 clap = { version = "4", features = ["derive"] }
+clap-verbosity-flag = { version = "3", default-features = false, features = [
+  "tracing",
+] }
+enum_dispatch = "0.3.13"
+figment = { version = "0.10.19", features = ["toml", "env"] }
 serde = { version = "1", features = ["derive"] }
-similar = "2"
-toml = "0.8"
-tree-sitter = "0.26"
+similar = "3.2.1"
+stable-eyre = "0.2"
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tree-sitter = "0.27.2"
 tree-sitter-rpmspec = { git = "https://github.com/kiritanya/tree-sitter-rpmspec", rev = "0166fc90271150ec93bb6168d58672a60f5a6a50" }
+
+[dev-dependencies]
+toml = "1.2"

@@ -1,6 +1,8 @@
-use crate::{parse, style};
-use anyhow::Result;
-use tree_sitter::Node;
+use crate::path_macros::DEFAULT_PATH_MACROS;
+use crate::rpm::{DEPENDENCY_TAGS, SECTION_KINDS};
+use crate::style;
+use stable_eyre::eyre::Result;
+use tree_sitter::{Node, Tree};
 
 /// Formatting options.
 #[derive(Debug, Clone)]
@@ -9,7 +11,7 @@ pub struct Config {
     pub tag_column: usize,
     /// Group and align preamble tags automatically.
     pub group_tags: bool,
-    /// Use one dependency expression per BuildRequires line.
+    /// Use one dependency expression per `BuildRequires` line.
     pub split_buildrequires: bool,
     /// Prefer braced macro references.
     pub normalize_macros: bool,
@@ -30,141 +32,6 @@ pub struct Config {
     /// Path prefixes and their macro replacements, longest prefix first.
     pub path_macros: Vec<(String, String)>,
 }
-
-pub const DEFAULT_PATH_MACROS: &[(&str, &str)] = &[
-    // Common top-level paths.
-    ("/etc", "%{_sysconfdir}"),
-    ("/run", "%{_rundir}"),
-    ("/usr", "%{_prefix}"),
-    ("/var", "%{_localstatedir}"),
-    // /etc
-    ("/etc/fonts", "%{_fontconfig_masterdir}"),
-    ("/etc/fonts/conf.d", "%{_fontconfig_confdir}"),
-    ("/etc/java", "%{_javaconfdir}"),
-    ("/etc/jvm", "%{_jvmsysconfdir}"),
-    ("/etc/jvm-common", "%{_jvmcommonsysconfdir}"),
-    ("/etc/pam.d", "%{_pam_confdir}"),
-    ("/etc/rc.d/init.d", "%{_initddir}"),
-    ("/etc/security", "%{_pam_secconfdir}"),
-    // /usr
-    ("/usr/bin", "%{_bindir}"),
-    ("/usr/sbin", "%{_sbindir}"),
-    ("/usr/src", "%{_usrsrc}"),
-    ("/usr/include", "%{_includedir}"),
-    ("/usr/include/d", "%{_d_includedir}"),
-    ("/usr/lib64", "%{_libdir}"),
-    ("/usr/lib64/gfortran/modules", "%{_fmoddir}"),
-    ("/usr/lib64/ocaml", "%{ocamldir}"),
-    ("/usr/lib64/pkgconfig", "%{_pkgconfigdir}"),
-    ("/usr/lib64/security", "%{_pam_moduledir}"),
-    ("/usr/lib/binfmt.d", "%{_binfmtdir}"),
-    ("/usr/lib/environment.d", "%{_environmentdir}"),
-    ("/usr/lib/java", "%{_jnidir}"),
-    ("/usr/lib/jvm", "%{_jvmdir}"),
-    ("/usr/lib/jvm-common", "%{_jvmcommonlibdir}"),
-    ("/usr/lib/jvm-private", "%{_jvmprivdir}"),
-    ("/usr/lib/kernel/install.d", "%{_kernel_install_dir}"),
-    ("/usr/lib/modprobe.d", "%{_modprobedir}"),
-    ("/usr/lib/modules-load.d", "%{_modulesloaddir}"),
-    ("/usr/lib/mono", "%{_monodir}"),
-    ("/usr/lib/mono/gac", "%{_monogacdir}"),
-    ("/usr/lib/rpm", "%{_rpmconfigdir}"),
-    ("/usr/lib/rpm/fileattrs", "%{_fileattrsdir}"),
-    ("/usr/lib/rpm/lua", "%{_rpmluadir}"),
-    ("/usr/lib/rpm/macros.d", "%{_rpmmacrodir}"),
-    ("/usr/lib/sysctl.d", "%{_sysctldir}"),
-    ("/usr/lib/sysusers.d", "%{_sysusersdir}"),
-    ("/usr/lib/swidtag/fedoraproject.org", "%{_swidtagdir}"),
-    ("/usr/lib/systemd", "%{_systemd_util_dir}"),
-    ("/usr/lib/systemd/catalog", "%{_journalcatalogdir}"),
-    ("/usr/lib/systemd/system", "%{_unitdir}"),
-    (
-        "/usr/lib/systemd/system-generators",
-        "%{_systemdgeneratordir}",
-    ),
-    ("/usr/lib/systemd/system-preset", "%{_presetdir}"),
-    (
-        "/usr/lib/systemd/system-environment-generators",
-        "%{_systemd_system_env_generator_dir}",
-    ),
-    ("/usr/lib/systemd/user", "%{_userunitdir}"),
-    (
-        "/usr/lib/systemd/user-generators",
-        "%{_systemdusergeneratordir}",
-    ),
-    ("/usr/lib/systemd/user-preset", "%{_userpresetdir}"),
-    (
-        "/usr/lib/systemd/user-environment-generators",
-        "%{_systemd_user_env_generator_dir}",
-    ),
-    ("/usr/lib/tmpfiles.d", "%{_tmpfilesdir}"),
-    ("/usr/lib/udev/hwdb.d", "%{_udevhwdbdir}"),
-    ("/usr/lib/udev/rules.d", "%{_udevrulesdir}"),
-    ("/usr/libexec", "%{_libexecdir}"),
-    ("/usr/libexec/perl5-tests", "%{perl_testdir}"),
-    // /usr/share
-    ("/usr/share", "%{_datadir}"),
-    ("/usr/share/applications", "%{_appsdir}"),
-    (
-        "/usr/share/bash-completion/completions",
-        "%{bash_completions_dir}",
-    ),
-    ("/usr/share/color", "%{_colordir}"),
-    ("/usr/share/color/cmms", "%{_cmmscolordir}"),
-    ("/usr/share/color/icc", "%{_icccolordir}"),
-    ("/usr/share/color/settings", "%{_settingscolordir}"),
-    ("/usr/share/doc", "%{_docdir}"),
-    (
-        "/usr/share/elvish/lib/completions",
-        "%{elvish_completions_dir}",
-    ),
-    (
-        "/usr/share/fish/vendor_completions.d",
-        "%{fish_completions_dir}",
-    ),
-    ("/usr/share/fonts", "%{_fontbasedir}"),
-    (
-        "/usr/share/fontconfig/conf.avail",
-        "%{_fontconfig_templatedir}",
-    ),
-    (
-        "/usr/share/gnome-shell/extensions",
-        "%{_gnomeextensionsdir}",
-    ),
-    ("/usr/share/icons", "%{_iconsdir}"),
-    ("/usr/share/icons/hicolor", "%{_hicolordir}"),
-    (
-        "/usr/share/icons/hicolor/scalable/apps",
-        "%{_scalableiconsdir}",
-    ),
-    ("/usr/share/info", "%{_infodir}"),
-    ("/usr/share/ivy-xmls", "%{_ivyxmldir}"),
-    ("/usr/share/java", "%{_javadir}"),
-    ("/usr/share/javadoc", "%{_javadocdir}"),
-    ("/usr/share/jvm", "%{_jvmdatadir}"),
-    ("/usr/share/jvm-common", "%{_jvmcommondatadir}"),
-    ("/usr/share/licenses", "%{_defaultlicensedir}"),
-    ("/usr/share/man", "%{_mandir}"),
-    ("/usr/share/maven-poms", "%{_mavenpomdir}"),
-    ("/usr/share/metainfo", "%{_metainfodir}"),
-    (
-        "/usr/share/nushell/vendor/autoload",
-        "%{nushell_completions_dir}",
-    ),
-    ("/usr/share/pam.d", "%{_pam_vendordir}"),
-    (
-        "/usr/share/pkgconfig/personality.d",
-        "%{pkgconfig_personalitydir}",
-    ),
-    ("/usr/share/systemtap/tapset", "%{_systemtap_tapsetdir}"),
-    ("/usr/share/user-tmpfiles.d", "%{_user_tmpfilesdir}"),
-    ("/usr/share/zsh/site-functions", "%{zsh_completions_dir}"),
-    // /var
-    ("/var/lib", "%{_sharedstatedir}"),
-    // EFI
-    ("/boot/efi/EFI", "%{efi_esp_efi}"),
-    ("/boot/efi/EFI/fedora", "%{efi_esp_dir}"),
-];
 
 impl Default for Config {
     fn default() -> Self {
@@ -192,7 +59,7 @@ impl Default for Config {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-enum Kind {
+pub(crate) enum Kind {
     Other = 0,
     Body = 1,
     DescriptionBody = 2,
@@ -202,70 +69,29 @@ enum Kind {
     Skip = 6,
 }
 
-fn is_body(kind: Kind) -> bool {
+const fn is_body(kind: Kind) -> bool {
     matches!(kind, Kind::Body | Kind::DescriptionBody | Kind::FilesBody)
 }
 
-const SECTION_KINDS: &[&str] = &[
-    "description",
-    "package",
-    "files",
-    "changelog",
-    "prep_scriptlet",
-    "build_scriptlet",
-    "install_scriptlet",
-    "check_scriptlet",
-    "clean_scriptlet",
-    "conf_scriptlet",
-    "runtime_scriptlet",
-    "runtime_scriptlet_interpreter",
-    "trigger",
-    "file_trigger",
-    "generate_buildrequires",
-    "sourcelist",
-    "patchlist",
-];
-
-const DEPENDENCY_TAGS: &[&str] = &[
-    "BuildRequires",
-    "Requires",
-    "Provides",
-    "Conflicts",
-    "Obsoletes",
-    "Recommends",
-    "Suggests",
-    "Supplements",
-    "Enhances",
-    "BuildConflicts",
-    "OrderWithRequires",
-];
-
 /// Format a spec file.
+/// Compatibility API: apply all explicitly enabled formatting and safe-fix
+/// options. The CLI uses the engine's separate `FormatOnly` and `SafeFix` modes.
+///
+/// # Errors
+///
+/// Returns an error when the source cannot be parsed.
 pub fn format(source: &str, cfg: &Config) -> Result<String> {
+    crate::engine::Engine::new(cfg.clone()).apply(source, crate::engine::FixMode::SafeFix)
+}
+
+pub(crate) fn classify(source: &str, tree: &Tree) -> Vec<Kind> {
     if source.is_empty() {
-        return Ok(String::new());
+        return Vec::new();
     }
-
-    // A missing final newline makes the grammar report a MISSING token at EOF,
-    // which would mark the last section as unformattable. Parse a normalised
-    // copy instead; node rows still map one-to-one onto the source lines.
-    let parse_source = if source.ends_with('\n') {
-        std::borrow::Cow::Borrowed(source)
-    } else {
-        std::borrow::Cow::Owned(format!("{source}\n"))
-    };
-    let tree = parse::parse(&parse_source)?;
-    let mut lines: Vec<String> = source.split('\n').map(str::to_string).collect();
-    if source.ends_with('\n') {
-        lines.pop();
-    }
-
+    let lines: Vec<String> = source.lines().map(str::to_string).collect();
     let mut kinds = vec![Kind::Other; lines.len()];
     walk(tree.root_node(), &mut kinds);
-
     mark_heredocs(&lines, &mut kinds);
-    // Continuations are indivisible, including when the grammar marks only
-    // their first row as a tag. Never move a tag away from its continuation.
     let mut continued = false;
     for (line, kind) in lines.iter().zip(&mut kinds) {
         let next = line.trim_end().ends_with('\\');
@@ -274,20 +100,85 @@ pub fn format(source: &str, cfg: &Config) -> Result<String> {
         }
         continued = next;
     }
+    let refs: Vec<&str> = lines.iter().map(String::as_str).collect();
+    if style::unsafe_preamble(&refs).is_some() {
+        kinds.fill(Kind::Skip);
+    } else {
+        let end = style::preamble_end(&refs);
+        if let Some(start) = refs[..end]
+            .iter()
+            .position(|line| style::executable_macro(line))
+        {
+            kinds[start..end].fill(Kind::Skip);
+        }
+    }
+    kinds
+}
+
+pub(crate) fn render_definitions(source: &str, tree: &Tree) -> String {
+    if source.is_empty() {
+        return String::new();
+    }
+    let mut lines: Vec<_> = source.split('\n').map(str::to_string).collect();
+    if source.ends_with('\n') {
+        lines.pop();
+    }
+    let rows = classify(source, tree).into_iter().zip(lines).collect();
+    let mut out = hoist_definitions(rows)
+        .into_iter()
+        .map(|(_, text)| text)
+        .collect::<Vec<_>>()
+        .join("\n");
+    if source.ends_with('\n') {
+        out.push('\n');
+    }
+    out
+}
+
+pub(crate) fn render_paths(source: &str, tree: &Tree, cfg: &Config) -> String {
+    if source.is_empty() {
+        return String::new();
+    }
+    let mut lines: Vec<_> = source.split('\n').collect();
+    if source.ends_with('\n') {
+        lines.pop();
+    }
+    let mut out = classify(source, tree)
+        .into_iter()
+        .zip(lines)
+        .map(|(kind, line)| {
+            if kind == Kind::FilesBody {
+                convert_paths_in_line(line, &cfg.path_macros)
+            } else {
+                line.to_string()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    if source.ends_with('\n') {
+        out.push('\n');
+    }
+    out
+}
+
+// Kept as one linear pipeline so the transformation order stays visible.
+#[allow(clippy::too_many_lines)]
+pub(crate) fn render(source: &str, cfg: &Config, tree: &Tree) -> String {
+    if source.is_empty() {
+        return String::new();
+    }
+
+    let mut lines: Vec<String> = source.split('\n').map(str::to_string).collect();
+    if source.ends_with('\n') {
+        lines.pop();
+    }
+
+    let kinds = classify(source, tree);
 
     let refs: Vec<&str> = lines.iter().map(String::as_str).collect();
     let unsafe_preamble = style::unsafe_preamble(&refs).is_some();
     if unsafe_preamble {
-        return Ok(source.to_string());
-    }
-    // Trailing executable macros may generate tags. Keep the entire tail
-    // opaque so no declaration is hoisted across it and no call is rewritten.
-    let preamble_end = style::preamble_end(&refs);
-    if let Some(start) = refs[..preamble_end]
-        .iter()
-        .position(|line| style::executable_macro(line))
-    {
-        kinds[start..preamble_end].fill(Kind::Skip);
+        return source.to_string();
     }
     if cfg.normalize_macros {
         let names: Vec<String> = style::macro_names(&refs)
@@ -309,7 +200,7 @@ pub fn format(source: &str, cfg: &Config) -> Result<String> {
         initial_rows = hoist_definitions(initial_rows);
     }
     if cfg.group_tags {
-        initial_rows = group_tags(initial_rows, cfg);
+        initial_rows = group_tags(&initial_rows, cfg);
     }
     let (kinds, lines): (Vec<_>, Vec<_>) = initial_rows.into_iter().unzip();
 
@@ -357,7 +248,6 @@ pub fn format(source: &str, cfg: &Config) -> Result<String> {
                 };
                 line.trim_end().to_string()
             }
-            Kind::DescriptionBody => line.trim_end().to_string(),
             Kind::FilesBody => {
                 let line = if cfg.convert_paths {
                     convert_paths_in_line(line, &cfg.path_macros)
@@ -377,7 +267,7 @@ pub fn format(source: &str, cfg: &Config) -> Result<String> {
         rows
     };
     let rows = if cfg.group_tags {
-        group_tags(rows, cfg)
+        group_tags(&rows, cfg)
     } else {
         rows
     };
@@ -388,7 +278,7 @@ pub fn format(source: &str, cfg: &Config) -> Result<String> {
     }
     let mut text = out.join("\n");
     text.push('\n');
-    Ok(text)
+    text
 }
 
 fn walk(node: Node<'_>, kinds: &mut [Kind]) {
@@ -398,6 +288,21 @@ fn walk(node: Node<'_>, kinds: &mut [Kind]) {
     }
 
     let kind = node.kind();
+
+    if kind == "macro_definition" {
+        let end = node.end_position();
+        let last = if end.column == 0 {
+            end.row.saturating_sub(1)
+        } else {
+            end.row
+        };
+        if last > node.start_position().row {
+            // Definitions embedded in an expansion have a different scope.
+            // Protect the parent definition and its entire multiline body.
+            mark_skip(kinds, node.start_position().row, last);
+            return;
+        }
+    }
 
     if kind == "preamble_tag" || kind == "packager_tag" {
         set_kind(kinds, node.start_position().row, Kind::Tag);
@@ -519,10 +424,8 @@ pub(crate) fn split_tag(line: &str) -> Option<(String, String)> {
 }
 
 fn base_tag(tag: &str) -> &str {
-    match tag.find('(') {
-        Some(idx) => &tag[..idx],
-        None => tag.trim_end_matches(':'),
-    }
+    tag.find('(')
+        .map_or_else(|| tag.trim_end_matches(':'), |idx| &tag[..idx])
 }
 
 fn render_tag(tag: &str, value: &str, cfg: &Config) -> String {
@@ -535,7 +438,7 @@ fn render_tag(tag: &str, value: &str, cfg: &Config) -> String {
     format!("{tag}{}{value}", " ".repeat(padding))
 }
 
-fn tag_padding(tag: &str, cfg: &Config) -> usize {
+const fn tag_padding(tag: &str, cfg: &Config) -> usize {
     if tag.len() + 1 >= cfg.tag_column {
         1
     } else {
@@ -544,7 +447,7 @@ fn tag_padding(tag: &str, cfg: &Config) -> usize {
 }
 
 fn token_is_simple(token: &str) -> bool {
-    !token.contains(|c: char| "()<>=|'\"#".contains(c)) && !token.contains("%(")
+    !token.contains(|c: char| "(){}%<>=|'\"#".contains(c))
 }
 
 /// Dependency tags are handled as a block so that sorting and wrapping are
@@ -646,7 +549,7 @@ fn wrap_tokens(tag: &str, tokens: &[String], cfg: &Config) -> Vec<String> {
             current.push_str(token);
         } else {
             out.push(format!("{tag}{gap}{current}"));
-            current = token.to_string();
+            current.clone_from(token);
         }
     }
     if !current.is_empty() {
@@ -707,7 +610,10 @@ fn hoist_definitions(mut rows: Vec<(Kind, String)>) -> Vec<(Kind, String)> {
         let (_, macro_name, _) = style::definition(&rows[i].1).unwrap();
         let duplicate = rows
             .iter()
-            .filter(|(_, line)| style::definition(line).is_some_and(|(_, n, _)| n == macro_name))
+            .filter(|(_, line)| {
+                style::definition(line)
+                    .is_some_and(|(_, n, _)| n.split('(').next() == Some(macro_name))
+            })
             .count()
             > 1;
         let previously_used = rows[..i].iter().any(|(_, line)| {
@@ -715,6 +621,12 @@ fn hoist_definitions(mut rows: Vec<(Kind, String)>) -> Vec<(Kind, String)> {
             braced.contains(&format!("%{{{macro_name}}}"))
                 || braced.contains(&format!("%{{?{macro_name}"))
                 || braced.contains(&format!("%{{!?{macro_name}"))
+                || (braced.contains(macro_name)
+                    && ["%{defined", "%{undefined", "%{macrobody"]
+                        .iter()
+                        .any(|prefix| braced.contains(prefix)))
+                || braced.contains("%{lua:")
+                || braced.contains("%(")
         });
         if duplicate || (i > name && previously_used) {
             continue;
@@ -747,7 +659,7 @@ fn hoist_definitions(mut rows: Vec<(Kind, String)>) -> Vec<(Kind, String)> {
 
 /// Group only plain tag blocks. Comments travel with the following tag;
 /// macros, conditionals and parser errors are never crossed.
-fn group_tags(rows: Vec<(Kind, String)>, cfg: &Config) -> Vec<(Kind, String)> {
+fn group_tags(rows: &[(Kind, String)], cfg: &Config) -> Vec<(Kind, String)> {
     let mut out = Vec::new();
     let mut i = 0;
     while i < rows.len() {
@@ -818,7 +730,11 @@ fn apply_spacing(rows: Vec<(Kind, String)>) -> Vec<(Kind, String)> {
         if kind == Kind::SectionHeader && !spaced.is_empty() {
             let last = spaced.last().unwrap();
             if !last.1.is_empty() && last.0 != Kind::SectionHeader {
-                if last.1.trim_start().starts_with('#') {
+                if last.0 == Kind::Skip {
+                    // Do not insert whitespace inside an opaque macro/error
+                    // tail, even if its final rows look like section comments.
+                    spaced.push((Kind::Other, String::new()));
+                } else if last.1.trim_start().starts_with('#') {
                     let mut idx = spaced.len();
                     while idx > 0 && spaced[idx - 1].1.trim_start().starts_with('#') {
                         idx -= 1;
@@ -901,6 +817,15 @@ fn wrap_descriptions(rows: Vec<(Kind, String)>, max_width: usize) -> Vec<(Kind, 
     out
 }
 
+fn split_list_bullet(text: &str) -> (&'static str, &str) {
+    for bullet in ["* ", "- ", "+ "] {
+        if let Some(rest) = text.strip_prefix(bullet) {
+            return (bullet, rest);
+        }
+    }
+    ("", text)
+}
+
 fn wrap_description_line(line: &str, max_width: usize) -> Vec<String> {
     if line.chars().count() <= max_width {
         return vec![line.to_string()];
@@ -908,15 +833,7 @@ fn wrap_description_line(line: &str, max_width: usize) -> Vec<String> {
 
     let trimmed = line.trim_start();
     let indent = &line[..line.len() - trimmed.len()];
-    let (bullet, body) = if let Some(rest) = trimmed.strip_prefix("* ") {
-        ("* ", rest)
-    } else if let Some(rest) = trimmed.strip_prefix("- ") {
-        ("- ", rest)
-    } else if let Some(rest) = trimmed.strip_prefix("+ ") {
-        ("+ ", rest)
-    } else {
-        ("", trimmed)
-    };
+    let (bullet, body) = split_list_bullet(trimmed);
 
     let first_prefix = format!("{indent}{bullet}");
     let cont_prefix = " ".repeat(first_prefix.chars().count());
@@ -932,17 +849,16 @@ fn wrap_description_line(line: &str, max_width: usize) -> Vec<String> {
             + separator
             + word.chars().count();
 
-        if current.is_empty() {
-            current.push_str(word);
-        } else if projected <= max_width {
-            current.push(' ');
-            current.push_str(word);
-        } else {
-            out.push(format!("{current_prefix}{current}"));
-            current_prefix = cont_prefix.clone();
-            current.clear();
-            current.push_str(word);
+        if !current.is_empty() {
+            if projected <= max_width {
+                current.push(' ');
+            } else {
+                out.push(format!("{current_prefix}{current}"));
+                current_prefix.clone_from(&cont_prefix);
+                current.clear();
+            }
         }
+        current.push_str(word);
     }
 
     if !current.is_empty() {
@@ -1052,6 +968,21 @@ mod tests {
             assert!(line.len() <= 40, "{line}");
         }
         assert_eq!(format(&out, &cfg).unwrap(), out);
+    }
+
+    #[test]
+    fn does_not_sort_or_wrap_inside_braced_dependency_expressions() {
+        let source = "Name: x\nRequires: %{?feature:zz aa} 0dep b\n";
+        let config = Config {
+            max_width: 20,
+            ..Config::default()
+        };
+        let out = format(source, &config).unwrap();
+        assert!(
+            out.contains("Requires: %{?feature:zz aa} 0dep b\n"),
+            "{out}"
+        );
+        assert_eq!(format(&out, &config).unwrap(), out);
     }
 
     #[test]
@@ -1206,6 +1137,17 @@ mod tests {
     }
 
     #[test]
+    fn preserves_comments_inside_a_trailing_macro_block() {
+        let source = "Name: x\nLicense: MIT\n%electronmeta -D\n# opaque tail comment\n%description\nExample\n";
+        let out = format(source, &Config::default()).unwrap();
+        assert!(
+            out.contains("%electronmeta -D\n# opaque tail comment\n"),
+            "{out}"
+        );
+        assert_eq!(format(&out, &Config::default()).unwrap(), out);
+    }
+
+    #[test]
     fn braces_macro_references_without_changing_calls_or_escapes() {
         let src = "Name: x\nRelease: 1%?dist\n\n%install\nmkdir -p %buildroot%_bindir\n%make_install\nprintf '%%s %s' foo\n\n%files\n%_bindir/x\n";
         let out = format(src, &Config::default()).unwrap();
@@ -1237,6 +1179,34 @@ mod tests {
         );
         assert!(out.contains("%define helper() echo %1"), "{out}");
         assert!(out.contains("%global based %{name}"), "{out}");
+    }
+
+    #[test]
+    fn parameterized_redefinitions_are_not_braced_or_hoisted() {
+        let source = "Name: x\nLicense: MIT\n%define foo 1\n%define foo() echo %1\n%define _bindir() echo %1\n\n%build\n%foo arg\n%_bindir arg\n";
+        let out = format(source, &Config::default()).unwrap();
+        assert!(
+            out.contains("%define foo 1\n%define foo() echo %1"),
+            "{out}"
+        );
+        assert!(out.contains("%foo arg\n%_bindir arg"), "{out}");
+        assert_eq!(format(&out, &Config::default()).unwrap(), out);
+    }
+
+    #[test]
+    fn does_not_hoist_across_macro_introspection_or_rewrite_nested_definitions() {
+        let source = "Name: x\nVersion: %{defined feature}\n%define feature 1\n";
+        let out = format(source, &Config::default()).unwrap();
+        assert!(
+            out.find("Version:").unwrap() < out.find("%define feature").unwrap(),
+            "{out}"
+        );
+        let nested = "%global body %{expand:\n%define local 1\n}\nName: x\n";
+        let out = format(nested, &Config::default()).unwrap();
+        assert!(
+            out.contains("%global body %{expand:\n%define local 1\n}"),
+            "{out}"
+        );
     }
 
     #[test]

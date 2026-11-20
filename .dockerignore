@@ -1,0 +1,9 @@
+.git
+.github
+target
+tests
+scripts
+docs
+README.md
+*.profraw
+*.profdata

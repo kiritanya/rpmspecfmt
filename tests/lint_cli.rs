@@ -44,6 +44,7 @@ impl Drop for SpecDir {
 
 fn run(fix: bool, paths: &[&Path]) -> Output {
     let mut command = Command::new(env!("CARGO_BIN_EXE_rpmspeclint"));
+    command.env("RUST_LOG", "off").env("NO_COLOR", "1");
     if fix {
         command.arg("--fix");
     }

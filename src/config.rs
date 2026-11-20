@@ -1,37 +1,100 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result};
-use serde::Deserialize;
+use figment::providers::{Env, Format, Serialized, Toml};
+use figment::Figment;
+use serde::{Deserialize, Serialize};
+use stable_eyre::eyre::{ensure, Result, WrapErr};
 
 use crate::format::Config;
 
 /// Configuration file, normally `.rpmspecfmt.toml`.
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Default, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct FileConfig {
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub tag_column: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub group_tags: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub split_buildrequires: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub normalize_macros: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub global_macros: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub max_width: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub sort: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub wrap: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub reindent: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub wrap_description: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub convert_paths: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub path_macros: Option<BTreeMap<String, String>>,
 }
 
 impl FileConfig {
+    /// Load an explicitly selected configuration file.
+    ///
+    /// # Errors
+    /// Returns an error if the file is missing, unreadable, or invalid TOML.
     pub fn load(path: &Path) -> Result<Self> {
-        let text = std::fs::read_to_string(path)
-            .with_context(|| format!("failed to read {}", path.display()))?;
-        toml::from_str(&text).with_context(|| format!("failed to parse {}", path.display()))
+        ensure!(
+            path.is_file(),
+            "config file does not exist: {}",
+            path.display()
+        );
+        Figment::from(Toml::file(path))
+            .extract()
+            .wrap_err_with(|| format!("failed to load {}", path.display()))
+    }
+
+    /// Defaults < TOML < prefixed environment < explicitly supplied CLI values.
+    ///
+    /// # Errors
+    /// Returns an error if the selected file or merged configuration is invalid.
+    pub fn resolve(path: Option<&Path>, defaults: &Config, overrides: &Self) -> Result<Config> {
+        let values = Self {
+            tag_column: Some(defaults.tag_column),
+            group_tags: Some(defaults.group_tags),
+            split_buildrequires: Some(defaults.split_buildrequires),
+            normalize_macros: Some(defaults.normalize_macros),
+            global_macros: Some(defaults.global_macros),
+            max_width: Some(defaults.max_width),
+            sort: Some(defaults.sort),
+            wrap: Some(defaults.wrap),
+            reindent: Some(defaults.reindent),
+            wrap_description: Some(defaults.wrap_description),
+            convert_paths: Some(defaults.convert_paths),
+            path_macros: None,
+        };
+        let mut figment = Figment::from(Serialized::defaults(values));
+        if let Some(path) = path {
+            ensure!(
+                path.is_file(),
+                "config file does not exist: {}",
+                path.display()
+            );
+            tracing::debug!(path = %path.display(), "loading configuration");
+            figment = figment.merge(Toml::file(path));
+        }
+        let file: Self = figment
+            .merge(Env::prefixed("RPMSPECFMT_").split("__"))
+            .merge(Serialized::defaults(overrides))
+            .extract()
+            .wrap_err("invalid rpmspecfmt configuration")?;
+        let mut cfg = defaults.clone();
+        file.apply(&mut cfg);
+        Ok(cfg)
     }
 
     /// Search the current directory and its parents for `.rpmspecfmt.toml`.
+    #[must_use]
     pub fn find() -> Option<PathBuf> {
         let mut dir = std::env::current_dir().ok()?;
         loop {
