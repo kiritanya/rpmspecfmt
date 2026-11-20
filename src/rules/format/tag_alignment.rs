@@ -42,7 +42,7 @@ impl Rule for TagAlignment {
             );
             let line = &context.lines[tag.line];
             if !tag.value.is_empty() && line.text != expected {
-                findings.push(self.finding(context.point_span(line.span.start), None));
+                findings.push(self.finding(line.span.clone(), None));
             }
         }
         Ok(findings)

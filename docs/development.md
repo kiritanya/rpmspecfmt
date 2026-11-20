@@ -9,9 +9,22 @@ pinned in `Cargo.toml` and `Cargo.lock`.
 ```sh
 cargo build --locked --release --bins
 cargo fmt --all -- --check
-cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
+cargo clippy --locked --workspace --all-targets --all-features
 cargo test --locked --workspace --all-targets --all-features
 ```
+
+Repository-local aliases in `.cargo/config.toml` make these checks easier to run:
+
+```sh
+cargo fmt-check # cargo fmt --all -- --check
+cargo lint      # cargo clippy --locked --workspace --all-targets --all-features
+cargo test-all  # cargo test --locked --workspace --all-targets --all-features
+```
+
+Clippy's `pedantic`, `nursery`, and `cargo` groups are enabled in `Cargo.toml`,
+with documented exceptions. The standard command reports warnings without
+promoting them to errors; review any warnings rather than relying only on the
+exit status. CI uses the same Clippy command.
 
 The implementation separates policy from transformations:
 

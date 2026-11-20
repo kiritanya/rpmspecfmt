@@ -164,7 +164,7 @@ fn fixes_all_requested_files_even_if_findings_remain() {
 fn fix_requires_files() {
     let result = run(true, &[]);
     assert_eq!(result.status.code(), Some(2));
-    assert!(result.stdout.is_empty());
+    assert_eq!(result.stdout, b"");
     assert!(String::from_utf8(result.stderr)
         .unwrap()
         .contains("--fix requires at least one spec file"));

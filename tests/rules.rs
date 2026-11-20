@@ -1,4 +1,5 @@
 use rpmspecfmt::context::Context;
+use rpmspecfmt::engine::Engine;
 use rpmspecfmt::rules::{
     self, BracedMacros, BuildRequiresOnePerLine, LineRule, Rule, RuleKind, UseEvr, UseGlobal,
 };
@@ -64,8 +65,47 @@ fn text_checks_survive_parser_errors_without_diagnosing_body_text() {
             .len(),
         1
     );
-    assert!(UseEvr
-        .check_line(&context.lines[4], &context)
-        .unwrap()
-        .is_empty());
+    assert_eq!(
+        UseEvr.check_line(&context.lines[4], &context).unwrap(),
+        [] as [rpmspecfmt::diagnostic::Finding; 0]
+    );
+}
+
+#[test]
+fn alignment_findings_group_lines_and_blank_gaps_but_not_conditionals_or_correct_tags() {
+    let source = "%bcond feature 1\nName:       日本語\nVersion:    1\n\nLicense:    MIT\nURL:     https://example.com\nSummary:    example\n%if 1\nRelease:    1\n%endif\n%autochangelog\n";
+    let findings = Engine::new(Config::default()).check(source).unwrap();
+    let alignment: Vec<_> = findings
+        .iter()
+        .filter(|finding| finding.rule == "tag-alignment")
+        .collect();
+    assert_eq!(alignment.len(), 3, "{alignment:?}");
+    assert_eq!(
+        &source[alignment[0].span.clone()],
+        "Name:       日本語\nVersion:    1\n\nLicense:    MIT"
+    );
+    assert_eq!(&source[alignment[1].span.clone()], "Summary:    example");
+    assert_eq!(&source[alignment[2].span.clone()], "Release:    1");
+    assert!(alignment.iter().all(|finding| finding.fix.is_none()));
+}
+
+#[test]
+fn repeated_macro_findings_share_a_block_and_keep_the_fix() {
+    let source = "Name: x\nLicense: MIT\nSource0: %version\nSource1: %release\n%autochangelog\n";
+    let engine = Engine::new(Config::default());
+    let findings = engine.check(source).unwrap();
+    let macros: Vec<_> = findings
+        .iter()
+        .filter(|finding| finding.rule == "braced-macros")
+        .collect();
+    assert_eq!(macros.len(), 1);
+    assert_eq!(
+        &source[macros[0].span.clone()],
+        "Source0: %version\nSource1: %release"
+    );
+    assert!(macros[0].fix.is_some());
+    let fixed = engine
+        .apply(source, rpmspecfmt::engine::FixMode::FormatOnly)
+        .unwrap();
+    assert!(fixed.contains("%{version}") && fixed.contains("%{release}"));
 }

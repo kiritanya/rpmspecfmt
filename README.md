@@ -23,6 +23,18 @@ rpmspecfmt --lint foo.spec       # report formatting and lint findings
 rpmspecfmt --lint --fix foo.spec # apply safe fixes, then report what remains
 ```
 
+## Development checks
+
+```sh
+cargo fmt-check
+cargo lint
+cargo test-all
+```
+
+These repository-local Cargo aliases run the standard formatting, Clippy, and
+test commands. Clippy enables `pedantic`, `nursery`, and `cargo` checks through
+`Cargo.toml`; see [development](docs/development.md) for the full commands.
+
 ## Documentation
 
 - [Formatting behavior and safety](docs/formatting.md)

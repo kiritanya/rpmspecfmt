@@ -51,7 +51,7 @@ impl Engine {
         let mut findings = Vec::new();
         for rule in &self.rules {
             tracing::trace!(rule = rule.id(), kind = ?rule.kind(), "checking rule");
-            findings.extend(rule.check(context)?);
+            findings.extend(group_findings(context, rule.check(context)?));
         }
         findings.sort_by(|a, b| (a.span.start, a.rule).cmp(&(b.span.start, b.rule)));
         findings.dedup();
@@ -113,6 +113,44 @@ impl Engine {
             self.max_passes
         )
     }
+}
+
+/// Group repeated findings into source blocks without changing their fix plans.
+fn group_findings(context: &Context<'_>, mut findings: Vec<Finding>) -> Vec<Finding> {
+    findings.sort_by_key(|finding| (finding.span.start, finding.span.end));
+    findings.dedup();
+    let line_index = |offset| {
+        context
+            .lines
+            .partition_point(|line| line.span.start <= offset)
+            .saturating_sub(1)
+    };
+    let mut grouped: Vec<Finding> = Vec::new();
+    for finding in findings {
+        if let Some(previous) = grouped.last_mut() {
+            let previous_end =
+                line_index(previous.span.end.saturating_sub(1).max(previous.span.start));
+            let next_start = line_index(finding.span.start);
+            let compatible = previous.rule == finding.rule
+                && previous.kind == finding.kind
+                && previous.message == finding.message
+                && previous.fix == finding.fix;
+            if compatible
+                && next_start > previous_end
+                && context.lines[previous_end + 1..next_start]
+                    .iter()
+                    .all(|line| line.text.trim().is_empty())
+            {
+                previous.span.start = context.lines[line_index(previous.span.start)].span.start;
+                let next_end =
+                    line_index(finding.span.end.saturating_sub(1).max(finding.span.start));
+                previous.span.end = context.lines[next_end].span.end;
+                continue;
+            }
+        }
+        grouped.push(finding);
+    }
+    grouped
 }
 
 fn fixes_for_mode(findings: &[Finding], mode: FixMode) -> impl Iterator<Item = Fix> + '_ {
@@ -230,7 +268,7 @@ mod tests {
         assert!(formatted.contains("%define feature 1"));
         let fixed = engine.apply(source, FixMode::SafeFix).unwrap();
         assert!(fixed.starts_with("%global feature 1\n"), "{fixed}");
-        assert!(engine.check(&fixed).unwrap().is_empty());
+        assert_eq!(engine.check(&fixed).unwrap(), [] as [Finding; 0]);
     }
 
     #[test]
@@ -296,7 +334,7 @@ mod tests {
     fn empty_input_is_a_noop() {
         let engine = Engine::new(Config::default());
         assert_eq!(engine.apply("", FixMode::SafeFix).unwrap(), "");
-        assert!(engine.check("").unwrap().is_empty());
+        assert_eq!(engine.check("").unwrap(), [] as [Finding; 0]);
     }
 
     #[test]
@@ -311,9 +349,63 @@ mod tests {
             .filter_map(|finding| finding.fix.as_ref())
             .map(|fix| &fix.edits[0].replacement)
             .collect();
-        assert!(replacements.len() > 500);
+        // One aggregate layout finding and one 500-line macro block.
+        assert_eq!(replacements.len(), 2);
+        let macros = findings
+            .iter()
+            .find(|finding| finding.rule == "braced-macros")
+            .unwrap();
+        assert_eq!(source[macros.span.clone()].lines().count(), 500);
         assert!(replacements
             .iter()
             .all(|text| std::sync::Arc::ptr_eq(text, replacements[0])));
+    }
+
+    #[test]
+    fn grouping_keeps_different_messages_kinds_and_fixes_separate() {
+        let config = Config::default();
+        let context = Context::new("a\nb", &config).unwrap();
+        let first = Finding {
+            rule: "test",
+            kind: RuleKind::Format,
+            span: 0..1,
+            message: "same".into(),
+            fix: None,
+        };
+        let second = Finding {
+            span: 2..3,
+            ..first.clone()
+        };
+        let merged = group_findings(&context, vec![first.clone(), second.clone()]);
+        assert_eq!(merged.len(), 1);
+        assert_eq!(merged[0].span, 0..3);
+        for different in [
+            Finding {
+                message: "different".into(),
+                ..second.clone()
+            },
+            Finding {
+                kind: RuleKind::CheckOnly,
+                ..second.clone()
+            },
+            Finding {
+                rule: "other",
+                ..second.clone()
+            },
+            Finding {
+                fix: Some(Fix {
+                    edits: vec![Edit {
+                        range: 2..3,
+                        replacement: "c".into(),
+                    }],
+                }),
+                ..second
+            },
+        ] {
+            assert_eq!(
+                group_findings(&context, vec![first.clone(), different]).len(),
+                2
+            );
+        }
     }
 }

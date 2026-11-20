@@ -21,10 +21,12 @@ fn detects_missing_changelog_and_license() {
 
 #[test]
 fn accepts_autochangelog_and_license() {
-    assert!(rules(
-        "Name: test\nVersion: 1\nRelease: 1\nSummary: test\nLicense: MIT\n\n%autochangelog\n"
-    )
-    .is_empty());
+    assert_eq!(
+        rules(
+            "Name: test\nVersion: 1\nRelease: 1\nSummary: test\nLicense: MIT\n\n%autochangelog\n"
+        ),
+        [] as [&str; 0]
+    );
 }
 
 #[test]
@@ -70,7 +72,7 @@ fn reports_setup_once() {
 #[test]
 fn clean_spec_has_no_semantic_diagnostics() {
     let source = "Name: test\nVersion: 1\nRelease: 1\nSummary: test\nLicense: MIT\n\n%prep\n%autosetup\n\n%changelog\n* Sat Nov 07 2026 Tester <t@example.com> - 1\n- Initial\n";
-    assert!(lint(source).is_empty());
+    assert_eq!(lint(source), [] as [Diagnostic; 0]);
 }
 
 #[test]
@@ -108,7 +110,7 @@ fn reports_new_style_rules_with_original_lines() {
 #[test]
 fn accepts_one_rich_or_versioned_dependency() {
     let source = "Name: x\nLicense: MIT\nBuildRequires: (foo if bar)\nBuildRequires: pkgconfig(foo) >= 1\n%autochangelog\n";
-    assert!(lint(source).is_empty());
+    assert_eq!(lint(source), [] as [Diagnostic; 0]);
 }
 
 #[test]

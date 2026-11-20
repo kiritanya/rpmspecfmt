@@ -275,6 +275,7 @@ fn render_findings(
             DiagnosticFormat::Rich => {
                 let note = match (finding.kind, finding.fix.is_some()) {
                     (RuleKind::CheckOnly, _) => "manual review required",
+                    (RuleKind::Format, _) => "auto-formatting available",
                     (_, true) => "safe fix available: rpmspecfmt --lint --fix FILE",
                     (_, false) => {
                         "automatic fix unavailable for this source; manual review required"

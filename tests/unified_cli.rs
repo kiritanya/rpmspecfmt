@@ -129,7 +129,7 @@ fn ariadne_reports_unicode_source_and_precise_macro_labels() {
     let source = "Name: 日本語\nLicense: MIT\nRelease: 1%?dist\n%autochangelog\n";
     let result = fixture.run(&["--lint", "--color", "never"], Some(source));
     assert_eq!(result.status.code(), Some(1), "{result:?}");
-    assert!(result.stdout.is_empty());
+    assert_eq!(result.stdout, b"");
     let output = String::from_utf8(result.stderr).unwrap();
     assert!(output.contains("日本語"), "{output}");
     assert!(output.contains("[braced-macros]"), "{output}");
@@ -243,7 +243,7 @@ fn tracing_goes_to_stderr_and_respects_verbosity() {
         .args(["-q", "input.spec"])
         .output()
         .unwrap();
-    assert!(quiet.stderr.is_empty());
+    assert_eq!(quiet.stderr, b"");
     let lint = fixture
         .command()
         .env_remove("RUST_LOG")
@@ -254,4 +254,27 @@ fn tracing_goes_to_stderr_and_respects_verbosity() {
     assert!(String::from_utf8(lint.stdout)
         .unwrap()
         .contains("[missing-license]"));
+}
+
+#[test]
+fn repeated_alignment_warnings_render_as_one_multiline_report() {
+    let fixture = Fixture::new();
+    let source = "%bcond feature 1\nName:      日本語\nVersion:   1\nRelease:   1\nLicense:   MIT\nSummary:   example\n%autochangelog\n";
+    let rich = fixture.run(&["--lint", "--color", "never"], Some(source));
+    assert_eq!(rich.status.code(), Some(1));
+    let output = String::from_utf8(rich.stderr).unwrap();
+    assert_eq!(output.matches("[tag-alignment]").count(), 1, "{output}");
+    assert!(
+        output.contains("日本語") && output.contains("Summary:"),
+        "{output}"
+    );
+    let short = fixture.run(&["--lint", "--diagnostic-format", "short"], Some(source));
+    let output = String::from_utf8(short.stdout).unwrap();
+    assert_eq!(output.matches("[tag-alignment]").count(), 1, "{output}");
+    assert!(
+        output
+            .lines()
+            .any(|line| line.starts_with("<stdin>:2:1:") && line.ends_with("[tag-alignment]")),
+        "{output}"
+    );
 }

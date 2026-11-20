@@ -94,6 +94,13 @@ reference the same layout snapshot without copying the whole spec hundreds
 of times. Tag facts are indexed by line; rules do not scan a precomputed
 diagnostic list for every source line.
 
+The engine groups repeated findings with the same rule, kind, message, and
+fix plan into a single multiline range. Adjacent affected lines and intervening
+blank lines can form one block; unaffected nonblank lines and conditionals
+separate blocks. Single findings retain their precise ranges. Grouping changes
+diagnostic presentation, not the edits in a fix. Ariadne elides the middle of
+long blocks; short diagnostics keep their one-line format at the block's start.
+
 The engine:
 
 1. Checks the cached source context.
