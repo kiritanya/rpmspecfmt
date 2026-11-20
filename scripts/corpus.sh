@@ -26,14 +26,50 @@ DEP = {
 }
 
 
+def canonical_macros(text):
+    # Bracing a reference is an intentional formatting change, not content loss.
+    out = []
+    i = 0
+    while i < len(text):
+        if text.startswith("%%", i):
+            out.append("%%")
+            i += 2
+            continue
+        match = re.match(r'%\{([!?]*[A-Za-z_][A-Za-z0-9_]*)\}', text[i:])
+        if match:
+            out.append("%" + match.group(1))
+            i += len(match.group(0))
+        else:
+            out.append(text[i])
+            i += 1
+    return "".join(out)
+
+
+def dependency_tokens(value):
+    # Ignore only top-level commas, which separate dependency expressions.
+    depth = 0
+    chars = []
+    for char in value:
+        if char in "({":
+            depth += 1
+        elif char in ")}":
+            depth -= 1
+        chars.append(" " if char == "," and depth == 0 else char)
+    return "".join(chars).split()
+
+
 def records(source):
     out = collections.Counter()
     for line in source.splitlines():
+        line = canonical_macros(line)
+        definition = re.match(r'\s*%(?:define|global)\s+([A-Za-z0-9_]+)\s+([^%\\]+)$', line)
+        if definition:
+            line = f"%global {definition.group(1)} {definition.group(2)}"
         match = TAG_RE.match(line)
         if match:
             tag, value = match.group(1), match.group(2).strip()
             if tag.split("(")[0] in DEP:
-                for token in value.split():
+                for token in dependency_tokens(value):
                     out[("dep", tag, token)] += 1
             else:
                 out[("tag", tag, value)] += 1

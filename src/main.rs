@@ -52,7 +52,7 @@ struct Args {
     #[arg(long, value_name = "PATH")]
     config: Option<PathBuf>,
 
-    /// Column where tag values start.
+    /// Column where tag values start (0: longest tag in each group plus one).
     #[arg(long)]
     tag_column: Option<usize>,
 
@@ -84,6 +84,7 @@ fn run() -> Result<()> {
     for path in &args.files {
         let src = std::fs::read_to_string(path)
             .with_context(|| format!("failed to read {}", path.display()))?;
+        warn_unsafe_preamble(&src, &path.display().to_string());
         let out =
             format(&src, &cfg).with_context(|| format!("failed to format {}", path.display()))?;
         let differs = out != src;
@@ -131,6 +132,10 @@ fn build_config(args: &Args) -> Result<Config> {
     }
 
     if args.safe {
+        cfg.group_tags = false;
+        cfg.split_buildrequires = false;
+        cfg.normalize_macros = false;
+        cfg.global_macros = false;
         cfg.sort = false;
         cfg.wrap = false;
         cfg.reindent = false;
@@ -152,6 +157,7 @@ fn build_config(args: &Args) -> Result<Config> {
 }
 
 fn process_stdin(src: &str, cfg: &Config, args: &Args) -> Result<()> {
+    warn_unsafe_preamble(src, "<stdin>");
     let out = format(src, cfg).context("failed to format stdin")?;
     let differs = out != src;
 
@@ -171,6 +177,18 @@ fn process_stdin(src: &str, cfg: &Config, args: &Args) -> Result<()> {
     }
 
     Ok(())
+}
+
+fn warn_unsafe_preamble(source: &str, path: &str) {
+    for diagnostic in rpmspecfmt::lint::lint(source)
+        .into_iter()
+        .filter(|d| d.rule == "unsafe-preamble")
+    {
+        eprintln!(
+            "{path}:{}:{}: warning: {} [unsafe-preamble]",
+            diagnostic.line, diagnostic.column, diagnostic.message
+        );
+    }
 }
 
 fn print_diff(old: &str, new: &str, path: &Path) {

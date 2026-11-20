@@ -34,7 +34,7 @@ rpmspecfmt < foo.spec            # stdin to stdout
 | `--no-wrap` | do not wrap long dependency tags |
 | `--no-reindent` | do not expand leading tabs in scriptlet bodies |
 | `--config PATH` | read this config file instead of searching for one |
-| `--tag-column N` | column where tag values start (default 16) |
+| `--tag-column N` | fixed column where tag values start; default `0` aligns each group automatically |
 | `--max-width N` | width for wrapping (default 100; alias `--wrap-width`) |
 
 ## Configuration
@@ -45,7 +45,11 @@ Command line options override the file, and `--safe` turns off every change
 that is not whitespace.
 
 ```toml
-tag_column = 16
+tag_column = 0
+group_tags = true
+split_buildrequires = true
+normalize_macros = true
+global_macros = true
 max_width = 80
 sort = true
 wrap = true
@@ -98,6 +102,14 @@ foo.spec:6:23: warning: use %{evr} instead of %{version}-%{release} [use-evr]
 | `missing-license` | no `License:` tag |
 | `use-evr` | `%{version}-%{release}` or `%version-%release` in dependency tags |
 | `use-autosetup` | `%setup`; `%autosetup` is preferred |
+| `buildrequires-one-per-line` | multiple dependency expressions in one `BuildRequires:` line |
+| `braced-macros` | bare macro references such as `%_bindir` and `%?dist` |
+| `use-global` | `%define`; check expansion timing before converting to `%global` |
+| `macro-placement` | macro definitions after `Name:` |
+| `unsafe-preamble` | executable macros or conditionals in the preamble; automatic formatting is disabled |
+| `tag-group-order` | incorrect tag group order in a lint-only preamble |
+| `tag-group-spacing` | no blank line between adjacent groups in a lint-only preamble |
+| `tag-alignment` | values not aligned within their group in a lint-only preamble |
 
 `use-evr` needs the `%{evr}` macro. On Terra it comes from
 `anda-srpm-macros`.
@@ -106,10 +118,31 @@ Exit status: 0 means no findings, 1 means findings, 2 means a read error.
 
 ## What it changes
 
-- Tag values are aligned at `tag_column` (16 by default).
+- Preamble tags are grouped in this order, with one blank line between groups:
+  metadata (`Name`, `Version`, `Release`, `Summary`, `License`, `URL`, `Packager`,
+  etc.), sources and patches, runtime dependencies (`Provides`, `Supplements`,
+  `Enhances`, `Recommends`, `Obsoletes`, `Conflicts`, `Requires`, etc.),
+  `BuildRequires` / `BuildConflicts`, and `BuildSystem` / `BuildOption(...)`.
+  Other tags form a final group. Sources and patches are ordered numerically.
+  Comments directly above tags move with them.
+- Values start one space after the longest tag (including its colon) in each
+  group. A nonzero `tag_column` overrides automatic alignment.
+- Each `BuildRequires:` line contains one dependency expression, including
+  version constraints such as `foo >= 1.2` and rich dependencies such as
+  `(foo if bar)`. `--no-wrap` does not disable this; use
+  `split_buildrequires = false` or `--safe` to retain multiple expressions.
+- Bare macro references become braced: `%_bindir` becomes `%{_bindir}` and
+  `%?dist` becomes `%{?dist}`. Known RPM references and non-parameterized macros
+  defined in the spec are handled; directives, argument-taking calls, `%%`
+  escapes, comments, and existing braced/shell expressions are left alone.
+- Safe literal `%define` declarations become `%global`, and safe literal
+  declarations after `Name:` move before it. Definitions with macro expansion,
+  parameters, continuations, redefinitions, or earlier uses that would change
+  meaning are not automatically converted or moved; the linter reports them.
 - Consecutive tags with the same name are sorted.
   Dependency tags (`BuildRequires`, `Requires`, ...) are sorted by dependency
-  token and wrapped. Other tags are sorted by value.
+  token and wrapped (except `BuildRequires`, which uses one expression per line).
+  Other tags are sorted by value.
 - Long dependency lines are wrapped at the configured width.
   Values with parentheses, comparison operators, quotes or `%(` are not
   wrapped, because splitting them can change their meaning.
@@ -124,6 +157,11 @@ Exit status: 0 means no findings, 1 means findings, 2 means a read error.
 ## What it leaves alone
 
 - Lines that contain a tree-sitter `ERROR` or `MISSING` node.
+- A spec with executable preamble macros such as `%electron_meta` / `%gometa`,
+  or preamble conditionals: the entire file is returned unchanged, and the
+  formatter prints an `unsafe-preamble` warning to stderr. Use `rpmspeclint`
+  for layout and style findings in these files. `--check` only reports actual
+  formatting changes; use the linter's exit status to detect these findings.
 - A whole section whose node reports an error.
 - Heredoc bodies.
 - Everything except whitespace when `--safe` is used.

@@ -87,11 +87,54 @@ pub fn lint(source: &str) -> Vec<Diagnostic> {
     let mut has_license = false;
     let mut has_changelog = false;
     let mut reported_setup = false;
+    let lines: Vec<&str> = source.lines().collect();
+    let macro_names = crate::style::macro_names(&lines);
+    let preamble_end = crate::style::preamble_end(&lines);
+    let name_line = lines[..preamble_end]
+        .iter()
+        .position(|line| split_tag_line(line.trim_start()).is_some_and(|(tag, _, _)| tag == "Name"))
+        .unwrap_or(preamble_end);
+    if let Some(index) = crate::style::unsafe_preamble(&lines) {
+        diagnostics.push(Diagnostic {
+            line: index + 1,
+            column: 1,
+            rule: "unsafe-preamble",
+            message: "preamble contains a macro or conditional; group and align tags manually (automatic formatting is disabled)",
+        });
+        lint_preamble_layout(&lines[..preamble_end], &mut diagnostics);
+    }
 
     for (index, line) in source.lines().enumerate() {
         let line_number = index + 1;
         let trimmed = line.trim_start();
         let indent = line.len() - trimmed.len();
+
+        if !trimmed.starts_with('#')
+            && crate::style::brace_macros_with_names(line, &macro_names) != line
+        {
+            diagnostics.push(Diagnostic {
+                line: line_number,
+                column: indent + 1,
+                rule: "braced-macros",
+                message: "use braced macro references, such as %{_bindir} and %{?dist}",
+            });
+        }
+        if let Some((directive, _, _)) = crate::style::definition(line) {
+            if directive == "define" {
+                diagnostics.push(Diagnostic {
+                    line: line_number,
+                    column: indent + 1,
+                    rule: "use-global",
+                    message: "prefer %global to %define; check expansion timing before converting",
+                });
+            }
+            if index > name_line {
+                diagnostics.push(Diagnostic {
+                    line: line_number, column: indent + 1,
+                    rule: "macro-placement", message: "place macro definitions before Name; check scope and expansion order before moving",
+                });
+            }
+        }
 
         if trimmed.starts_with('%') {
             let section = section_word(trimmed);
@@ -129,6 +172,17 @@ pub fn lint(source: &str) -> Vec<Diagnostic> {
         };
         let tag = tag_name(tag);
 
+        if tag == "BuildRequires"
+            && crate::style::dependencies(value).is_some_and(|deps| deps.len() > 1)
+        {
+            diagnostics.push(Diagnostic {
+                line: line_number,
+                column: indent + value_offset + 1,
+                rule: "buildrequires-one-per-line",
+                message: "put each BuildRequires dependency expression on its own line",
+            });
+        }
+
         if tag == "License" {
             has_license = true;
         }
@@ -165,6 +219,49 @@ pub fn lint(source: &str) -> Vec<Diagnostic> {
     diagnostics.sort_by(|a, b| (a.line, a.column, a.rule).cmp(&(b.line, b.column, b.rule)));
     diagnostics.dedup();
     diagnostics
+}
+
+fn lint_preamble_layout(lines: &[&str], diagnostics: &mut Vec<Diagnostic>) {
+    let tags: Vec<_> = lines
+        .iter()
+        .enumerate()
+        .filter_map(|(i, line)| crate::format::split_tag(line).map(|(tag, value)| (i, tag, value)))
+        .collect();
+    let mut previous = None;
+    for (index, tag, value) in &tags {
+        let order = crate::style::tag_order(tag);
+        let column = tags
+            .iter()
+            .filter(|(_, t, _)| crate::style::tag_order(t).0 == order.0)
+            .map(|(_, t, _)| t.len() + 1)
+            .max()
+            .unwrap();
+        if !value.is_empty()
+            && lines[*index] != format!("{tag}{}{value}", " ".repeat(column - tag.len()))
+        {
+            diagnostics.push(Diagnostic {
+                line: index + 1,
+                column: 1,
+                rule: "tag-alignment",
+                message: "align values within each tag group at the longest tag plus one space",
+            });
+        }
+        if let Some((previous_index, previous_order)) = previous {
+            if order < previous_order {
+                diagnostics.push(Diagnostic { line: index + 1, column: 1,
+                    rule: "tag-group-order", message: "group metadata, sources/patches, dependencies, BuildRequires, and build options in that order" });
+            }
+            if order.0 != previous_order.0 && *index == previous_index + 1 {
+                diagnostics.push(Diagnostic {
+                    line: index + 1,
+                    column: 1,
+                    rule: "tag-group-spacing",
+                    message: "separate tag groups with a blank line",
+                });
+            }
+        }
+        previous = Some((*index, order));
+    }
 }
 
 fn is_extra_setup(line: &str) -> bool {
@@ -333,5 +430,38 @@ mod tests {
         assert!(!diagnostics
             .iter()
             .any(|diagnostic| diagnostic.rule == "missing-license"));
+    }
+
+    #[test]
+    fn reports_new_style_rules_with_original_lines() {
+        let src = "Name: x\nLicense: MIT\n%gometa\nBuildRequires: pkgconfig(foo) gcc >= 1\n%define feature 1\nRelease: 1%?dist\n\n%autochangelog\n";
+        let diagnostics = lint(src);
+        for (rule, line) in [
+            ("unsafe-preamble", 3),
+            ("buildrequires-one-per-line", 4),
+            ("use-global", 5),
+            ("macro-placement", 5),
+            ("braced-macros", 6),
+        ] {
+            assert!(
+                diagnostics.iter().any(|d| d.rule == rule && d.line == line),
+                "{diagnostics:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn accepts_one_rich_or_versioned_dependency() {
+        let src = "Name: x\nLicense: MIT\nBuildRequires: (foo if bar)\nBuildRequires: pkgconfig(foo) >= 1\n%autochangelog\n";
+        assert!(lint(src).is_empty(), "{:?}", lint(src));
+    }
+
+    #[test]
+    fn lints_group_layout_when_a_macro_prevents_formatting() {
+        let src = "Name: x\nVersion: 1\n%gometa\nBuildRequires: gcc\nSource0: x\nLicense: MIT\n%autochangelog\n";
+        let found = rules(src);
+        for rule in ["tag-alignment", "tag-group-order", "tag-group-spacing"] {
+            assert!(found.contains(&rule), "{found:?}");
+        }
     }
 }

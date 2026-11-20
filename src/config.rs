@@ -11,6 +11,10 @@ use crate::format::Config;
 #[serde(deny_unknown_fields)]
 pub struct FileConfig {
     pub tag_column: Option<usize>,
+    pub group_tags: Option<bool>,
+    pub split_buildrequires: Option<bool>,
+    pub normalize_macros: Option<bool>,
+    pub global_macros: Option<bool>,
     pub max_width: Option<usize>,
     pub sort: Option<bool>,
     pub wrap: Option<bool>,
@@ -42,6 +46,18 @@ impl FileConfig {
     }
 
     pub fn apply(self, cfg: &mut Config) {
+        if let Some(value) = self.group_tags {
+            cfg.group_tags = value;
+        }
+        if let Some(value) = self.split_buildrequires {
+            cfg.split_buildrequires = value;
+        }
+        if let Some(value) = self.normalize_macros {
+            cfg.normalize_macros = value;
+        }
+        if let Some(value) = self.global_macros {
+            cfg.global_macros = value;
+        }
         if let Some(value) = self.tag_column {
             cfg.tag_column = value;
         }
@@ -122,5 +138,16 @@ mod tests {
     #[test]
     fn rejects_unknown_keys() {
         assert!(toml::from_str::<FileConfig>("unknown = true").is_err());
+    }
+
+    #[test]
+    fn can_disable_new_style_changes() {
+        let file: FileConfig = toml::from_str("group_tags = false\nsplit_buildrequires = false\nnormalize_macros = false\nglobal_macros = false\n").unwrap();
+        let mut cfg = Config::default();
+        file.apply(&mut cfg);
+        assert!(!cfg.group_tags);
+        assert!(!cfg.split_buildrequires);
+        assert!(!cfg.normalize_macros);
+        assert!(!cfg.global_macros);
     }
 }
