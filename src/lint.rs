@@ -73,6 +73,20 @@ const EVR_PATTERNS: &[(&str, &str)] = &[
     ),
 ];
 
+/// Apply conservative style fixes without sorting dependency values, wrapping
+/// runtime dependencies, or reindenting scriptlets. Semantic recommendations
+/// such as use-evr and use-autosetup remain diagnostics for manual review.
+/// Specs with unsafe preamble macros are returned unchanged.
+pub fn fix(source: &str) -> anyhow::Result<String> {
+    let cfg = crate::Config {
+        sort: false,
+        wrap: false,
+        reindent: false,
+        ..crate::Config::default()
+    };
+    crate::format(source, &cfg)
+}
+
 /// Lint a spec file.
 ///
 /// This is a text-based linter, so it still works when the grammar reports
@@ -99,7 +113,7 @@ pub fn lint(source: &str) -> Vec<Diagnostic> {
             line: index + 1,
             column: 1,
             rule: "unsafe-preamble",
-            message: "preamble contains a macro or conditional; group and align tags manually (automatic formatting is disabled)",
+            message: "preamble contains a macro before tags or a conditional; group and align tags manually (automatic formatting is disabled)",
         });
         lint_preamble_layout(&lines[..preamble_end], &mut diagnostics);
     }

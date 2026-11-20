@@ -5,7 +5,7 @@ use std::process::exit;
 use anyhow::{Context, Result};
 use clap::Parser;
 
-use rpmspecfmt::lint::lint;
+use rpmspecfmt::lint::{fix, lint};
 
 #[derive(Debug, Parser)]
 #[command(
@@ -17,6 +17,10 @@ use rpmspecfmt::lint::lint;
 struct Args {
     /// Spec files to lint. Reads stdin when omitted.
     files: Vec<PathBuf>,
+
+    /// Rewrite files with safe style fixes, then report remaining findings.
+    #[arg(long)]
+    fix: bool,
 }
 
 fn main() {
@@ -28,6 +32,10 @@ fn main() {
 
 fn run() -> Result<()> {
     let args = Args::parse();
+
+    if args.fix && args.files.is_empty() {
+        anyhow::bail!("--fix requires at least one spec file; stdin is lint-only");
+    }
 
     if args.files.is_empty() {
         let mut source = String::new();
@@ -42,8 +50,17 @@ fn run() -> Result<()> {
 
     let mut found = false;
     for path in &args.files {
-        let source = std::fs::read_to_string(path)
+        let mut source = std::fs::read_to_string(path)
             .with_context(|| format!("failed to read {}", path.display()))?;
+        if args.fix {
+            let fixed =
+                fix(&source).with_context(|| format!("failed to fix {}", path.display()))?;
+            if fixed != source {
+                std::fs::write(path, &fixed)
+                    .with_context(|| format!("failed to write {}", path.display()))?;
+                source = fixed;
+            }
+        }
         found |= lint_file(path, &source);
     }
 

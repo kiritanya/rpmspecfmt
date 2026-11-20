@@ -280,6 +280,15 @@ pub fn format(source: &str, cfg: &Config) -> Result<String> {
     if unsafe_preamble {
         return Ok(source.to_string());
     }
+    // Trailing executable macros may generate tags. Keep the entire tail
+    // opaque so no declaration is hoisted across it and no call is rewritten.
+    let preamble_end = style::preamble_end(&refs);
+    if let Some(start) = refs[..preamble_end]
+        .iter()
+        .position(|line| style::executable_macro(line))
+    {
+        kinds[start..preamble_end].fill(Kind::Skip);
+    }
     if cfg.normalize_macros {
         let names: Vec<String> = style::macro_names(&refs)
             .into_iter()
@@ -1178,6 +1187,22 @@ mod tests {
             let src = format!("Name:  x  \n\n\n{directive}\nBuildRequires: gcc cmake\n\n%build\n\techo %_bindir  \n");
             assert_eq!(format(&src, &Config::default()).unwrap(), src);
         }
+    }
+
+    #[test]
+    fn formats_tags_before_trailing_macros_without_changing_the_tail() {
+        let tail = "%electronmeta -D  \n%another_macro %_bindir\n%define feature 1\n\n";
+        let src = format!("Name:           discord\nVersion:        1\nSource0:        https://example.com/discord.tar.gz\nLicense:        MIT\nRequires:       zenity\n\n{tail}%description\nExample\n");
+        let out = format(&src, &Config::default()).unwrap();
+        assert!(out.starts_with("Name:    discord\nVersion: 1\nLicense: MIT\n\nSource0: https://example.com/discord.tar.gz\n\nRequires: zenity\n"), "{out}");
+        assert!(out.contains(&format!("{tail}%description")), "{out}");
+        assert_eq!(format(&out, &Config::default()).unwrap(), out);
+    }
+
+    #[test]
+    fn conditionals_remain_unsafe_even_after_the_last_tag() {
+        let src = "Name: x\nLicense: MIT\n%if 0%{?fedora}\n%electronmeta -D\n%endif\n\n%description\nExample\n";
+        assert_eq!(format(src, &Config::default()).unwrap(), src);
     }
 
     #[test]

@@ -82,13 +82,33 @@ Comment lines and quoted paths are not changed.
 
 ## Linter
 
-`rpmspeclint` is a separate binary for semantic checks. It never rewrites files.
+`rpmspeclint` is a separate binary for semantic and style checks. It only
+rewrites files when `--fix` is specified.
 It reads tags line by line, so it still works when the grammar reports errors.
 
 ```sh
 rpmspeclint foo.spec
 rpmspeclint < foo.spec
+rpmspeclint --fix foo.spec       # apply safe fixes in place, then lint again
+rpmspeclint --fix foo.spec bar.spec
 ```
+
+`--fix` uses the built-in style defaults to group/align tags, split
+`BuildRequires`, brace macro references, and convert/hoist safe literal macro
+definitions. It also normalizes whitespace, but does not sort dependency
+values, wrap runtime dependencies or descriptions, reindent scriptlets, or
+convert file paths. It does not load formatter configuration files.
+
+Unsafe preambles remain completely unchanged. Macro calls after all explicit
+preamble tags are kept in place and do not prevent formatting the tags before
+them. Definitions whose scope or
+expansion timing could change also remain in place. `use-evr`, `use-autosetup`,
+missing license, and missing changelog findings need manual review and are not
+automatically fixed. Only remaining findings are printed, with line numbers
+from the fixed file. Without `--fix`, linting remains read-only.
+
+`--fix` requires file paths; stdin is lint-only. For formatted stdin output,
+use `rpmspecfmt` instead.
 
 It prints one line per finding:
 
@@ -106,7 +126,7 @@ foo.spec:6:23: warning: use %{evr} instead of %{version}-%{release} [use-evr]
 | `braced-macros` | bare macro references such as `%_bindir` and `%?dist` |
 | `use-global` | `%define`; check expansion timing before converting to `%global` |
 | `macro-placement` | macro definitions after `Name:` |
-| `unsafe-preamble` | executable macros or conditionals in the preamble; automatic formatting is disabled |
+| `unsafe-preamble` | executable macros before/between preamble tags, or preamble conditionals; automatic formatting is disabled |
 | `tag-group-order` | incorrect tag group order in a lint-only preamble |
 | `tag-group-spacing` | no blank line between adjacent groups in a lint-only preamble |
 | `tag-alignment` | values not aligned within their group in a lint-only preamble |
@@ -114,7 +134,8 @@ foo.spec:6:23: warning: use %{evr} instead of %{version}-%{release} [use-evr]
 `use-evr` needs the `%{evr}` macro. On Terra it comes from
 `anda-srpm-macros`.
 
-Exit status: 0 means no findings, 1 means findings, 2 means a read error.
+Exit status: 0 means no remaining findings, 1 means findings remain, 2 means
+an input, formatting, or write error (including `--fix` without file paths).
 
 ## What it changes
 
@@ -157,11 +178,14 @@ Exit status: 0 means no findings, 1 means findings, 2 means a read error.
 ## What it leaves alone
 
 - Lines that contain a tree-sitter `ERROR` or `MISSING` node.
-- A spec with executable preamble macros such as `%electron_meta` / `%gometa`,
-  or preamble conditionals: the entire file is returned unchanged, and the
+- A spec with executable macros before/between preamble tags, or preamble
+  conditionals: the entire file is returned unchanged, and the
   formatter prints an `unsafe-preamble` warning to stderr. Use `rpmspeclint`
   for layout and style findings in these files. `--check` only reports actual
   formatting changes; use the linter's exit status to detect these findings.
+- Executable macro calls after all explicit preamble tags (for example
+  `%electronmeta -D`) stay after the tags, with the entire trailing macro block
+  preserved verbatim. The tags before that block can still be formatted.
 - A whole section whose node reports an error.
 - Heredoc bodies.
 - Everything except whitespace when `--safe` is used.

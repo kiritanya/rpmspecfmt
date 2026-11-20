@@ -56,12 +56,38 @@ pub(crate) fn preamble_end(lines: &[&str]) -> usize {
         .unwrap_or(lines.len())
 }
 
-/// Any executable macro or conditional in a preamble is a reordering barrier.
+pub(crate) fn executable_macro(line: &str) -> bool {
+    let line = line.trim_start();
+    line.starts_with('%') && !matches!(section_word(line), "global" | "define")
+}
+
+fn conditional(line: &str) -> bool {
+    matches!(
+        section_word(line),
+        "if" | "ifarch"
+            | "ifnarch"
+            | "ifos"
+            | "ifnos"
+            | "else"
+            | "elif"
+            | "elifarch"
+            | "elifnarch"
+            | "elifos"
+            | "elifnos"
+            | "endif"
+    )
+}
+
+/// Executable macros preceding tags and conditionals are unsafe. A trailing
+/// macro block is safe provided it remains after all explicitly written tags.
 pub(crate) fn unsafe_preamble(lines: &[&str]) -> Option<usize> {
     let end = preamble_end(lines);
-    lines[..end].iter().position(|line| {
-        let line = line.trim_start();
-        line.starts_with('%') && !matches!(section_word(line), "global" | "define")
+    let last_tag = lines[..end]
+        .iter()
+        .rposition(|line| crate::format::split_tag(line).is_some());
+    lines[..end].iter().enumerate().find_map(|(index, line)| {
+        (conditional(line) || (executable_macro(line) && last_tag.is_some_and(|last| index < last)))
+            .then_some(index)
     })
 }
 
