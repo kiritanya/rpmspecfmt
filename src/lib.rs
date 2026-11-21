@@ -4,7 +4,6 @@ pub mod context;
 pub mod diagnostic;
 pub mod engine;
 mod format;
-pub mod lint;
 pub mod output;
 mod parse;
 mod path_macros;

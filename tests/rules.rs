@@ -118,11 +118,6 @@ fn evr_recommendations_cover_the_entire_optional_epoch_expression() {
         assert!(findings[0].message.contains(expression));
         assert!(findings[0].message.contains("already includes the epoch"));
         assert!(findings[0].fix.is_none());
-        // Static messages must also be representable by the compatibility API.
-        let legacy = rpmspecfmt::lint::lint_with_config(&source, &config).unwrap();
-        assert!(legacy
-            .iter()
-            .any(|finding| finding.rule == "use-evr" && finding.message.contains(expression)));
     }
 }
 
@@ -188,6 +183,43 @@ fn evr_tree_rule_skips_malformed_dependencies_without_a_text_fallback() {
                 .iter()
                 .any(|finding| finding.rule == "use-evr"),
             "{source}"
+        );
+    }
+}
+
+#[test]
+fn engine_checks_all_rule_kinds_and_respects_disabled_rules() {
+    let source = "Name: x\nRequires: x = %{version}-%{release}\n%define feature 1\n";
+    let findings = Engine::new(Config::default()).check(source).unwrap();
+    for id in [
+        "format",
+        "use-global",
+        "macro-placement",
+        "use-evr",
+        "missing-license",
+        "missing-changelog",
+    ] {
+        assert!(
+            findings.iter().any(|finding| finding.rule == id),
+            "{findings:?}"
+        );
+    }
+    let config = Config {
+        normalize_macros: false,
+        split_buildrequires: false,
+        global_macros: false,
+        ..Config::default()
+    };
+    let findings = Engine::new(config).check("Name: x\nLicense: MIT\nRelease: 1%?dist\nBuildRequires: gcc cmake\n%define feature 1\n%autochangelog\n").unwrap();
+    for id in [
+        "braced-macros",
+        "buildrequires-one-per-line",
+        "use-global",
+        "macro-placement",
+    ] {
+        assert!(
+            !findings.iter().any(|finding| finding.rule == id),
+            "{findings:?}"
         );
     }
 }

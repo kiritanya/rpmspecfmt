@@ -5,7 +5,7 @@ use crate::context::Context;
 use crate::diagnostic::Finding;
 use crate::rules::{Rule, RuleKind, TreeRule};
 
-// Exact spellings only select a static compatibility message after the AST has
+// Exact spellings only select a diagnostic message after the AST has
 // established the complete dependency version and each macro's role.
 const EXPRESSIONS: &[(&str, &str)] = &[
     (
@@ -38,12 +38,6 @@ impl Rule for UseEvr {
     }
     fn message(&self) -> &'static str {
         EXPRESSIONS[2].1
-    }
-    fn static_message(&self, text: &str) -> Option<&'static str> {
-        EXPRESSIONS
-            .iter()
-            .map(|(_, message)| *message)
-            .find(|message| *message == text)
     }
     fn check(&self, context: &Context<'_>) -> Result<Vec<Finding>> {
         self.check_tree(&context.tree, context)

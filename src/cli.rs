@@ -76,23 +76,15 @@ struct Args {
     verbosity: Verbosity<WarnLevel>,
 }
 
-/// Shared entry point. The old executable is only a compatibility alias.
-pub fn main(legacy_lint: bool) {
+/// Shared entry point; the lint alias only selects `--lint` mode.
+pub fn main(lint_alias: bool) {
     if let Err(error) = stable_eyre::install() {
         eprintln!("rpmspecfmt: {error:?}");
         std::process::exit(2);
     }
     let mut arguments: Vec<_> = std::env::args_os().collect();
-    if legacy_lint {
-        if !arguments.iter().any(|arg| arg == "--lint") {
-            arguments.insert(1, "--lint".into());
-        }
-        if !arguments
-            .iter()
-            .any(|arg| arg.to_string_lossy().starts_with("--diagnostic-format"))
-        {
-            arguments.insert(2, "--diagnostic-format=short".into());
-        }
+    if lint_alias && !arguments.iter().any(|arg| arg == "--lint") {
+        arguments.insert(1, "--lint".into());
     }
     let args = Args::parse_from(arguments);
     let color = match args.color {

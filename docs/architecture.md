@@ -85,11 +85,12 @@ src/rules/
     unsafe_preamble.rs
 ```
 
-`lint.rs` contains only compatibility entry points and diagnostic conversion.
-`lint_with_config()` calls `Engine::check()`, which uses the registry above.
-It returns a `Result`; `lint()` retains the original Vec-returning API with
-default configuration. Detection logic and pattern tables live in their
-individual rule files, not in a shared string-ID dispatcher.
+Library callers inspect sources with `Engine::check()` and apply selected rule
+kinds through `Engine::apply()` or `Engine::apply_with_findings()`. There is no
+separate legacy lint API. Detection logic lives in individual rule files, not
+in a shared string-ID dispatcher. `rpmspeclint` only selects `--lint` in the
+shared CLI; options, diagnostic defaults, configuration, fixes, and exit codes
+are identical to `rpmspecfmt --lint`.
 
 ## Findings and fixes
 

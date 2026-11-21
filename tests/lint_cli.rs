@@ -43,7 +43,8 @@ impl Drop for SpecDir {
 }
 
 fn run(fix: bool, paths: &[&Path]) -> Output {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_rpmspeclint"));
+    let mut command = Command::new(env!("CARGO_BIN_EXE_rpmspecfmt"));
+    command.args(["--lint", "--diagnostic-format", "short"]);
     command.env("RUST_LOG", "off").env("NO_COLOR", "1");
     if fix {
         command.arg("--fix");
@@ -180,13 +181,17 @@ fn missing_file_is_an_io_error() {
 
 #[test]
 fn fixes_do_not_sort_or_reindent_scriptlets() {
+    let dir = SpecDir::new();
     let source = "Name: x\nLicense: MIT\nRequires: zlib\nRequires: abc\nBuildRequires: zlib gcc\n\n%build\n\techo hello\n\n%autochangelog\n";
-    let fixed = rpmspecfmt::lint::fix(source).unwrap();
+    let path = dir.spec("conservative.spec", source);
+    assert!(run(true, &[&path]).status.success());
+    let fixed = std::fs::read_to_string(&path).unwrap();
     assert!(fixed.contains("Requires: zlib\nRequires: abc"), "{fixed}");
     assert!(
         fixed.contains("BuildRequires: zlib\nBuildRequires: gcc"),
         "{fixed}"
     );
     assert!(fixed.contains("\techo hello"), "{fixed}");
-    assert_eq!(rpmspecfmt::lint::fix(&fixed).unwrap(), fixed);
+    assert!(run(true, &[&path]).status.success());
+    assert_eq!(std::fs::read_to_string(path).unwrap(), fixed);
 }

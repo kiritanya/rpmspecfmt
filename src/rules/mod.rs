@@ -29,11 +29,6 @@ pub trait Rule {
     fn id(&self) -> &'static str;
     fn kind(&self) -> RuleKind;
     fn message(&self) -> &'static str;
-    /// Known static messages for the compatibility Diagnostic API.
-    fn static_message(&self, text: &str) -> Option<&'static str> {
-        let message = self.message();
-        (message == text).then_some(message)
-    }
     /// Inspect one context and return every finding for this rule.
     ///
     /// # Errors
@@ -111,11 +106,4 @@ const BUILTINS: [RuleSet; 14] = [
 #[must_use]
 pub fn builtins() -> Vec<RuleSet> {
     BUILTINS.to_vec()
-}
-
-pub(crate) fn message(id: &str, text: &str) -> Option<&'static str> {
-    BUILTINS
-        .iter()
-        .find(|rule| rule.id() == id)
-        .and_then(|rule| rule.static_message(text))
 }

@@ -465,7 +465,7 @@ fn sarif_requires_lint_and_does_not_emit_partial_documents_on_input_errors() {
 }
 
 #[test]
-fn legacy_alias_accepts_explicit_sarif_output() {
+fn lint_alias_accepts_explicit_sarif_output() {
     let fixture = Fixture::new();
     fixture.write("input.spec", "Name: x\n");
     let output = Command::new(env!("CARGO_BIN_EXE_rpmspeclint"))
@@ -476,6 +476,54 @@ fn legacy_alias_accepts_explicit_sarif_output() {
     assert_eq!(output.status.code(), Some(1));
     let document: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(document["runs"][0]["tool"]["driver"]["name"], "rpmspecfmt");
+}
+
+#[test]
+fn lint_alias_matches_unified_cli_defaults_formats_and_fixes() {
+    let fixture = Fixture::new();
+    let source = "Name: x\nLicense: MIT\n%define feature 1\nRequires: x = %{version}-%{release}\n%autochangelog\n";
+    let path = fixture.write("input.spec", source);
+    for format in [None, Some("rich"), Some("short"), Some("sarif")] {
+        for fix in [false, true] {
+            std::fs::write(&path, source).unwrap();
+            let mut args = vec!["--lint", "--color", "never"];
+            if let Some(format) = format {
+                args.extend(["--diagnostic-format", format]);
+            }
+            if fix {
+                args.push("--fix");
+            }
+            args.push("input.spec");
+            let expected = fixture.run(&args, None);
+            let expected_source = std::fs::read_to_string(&path).unwrap();
+            std::fs::write(&path, source).unwrap();
+            let actual = Command::new(env!("CARGO_BIN_EXE_rpmspeclint"))
+                .current_dir(&fixture.0)
+                .env("RUST_LOG", "off")
+                .env("NO_COLOR", "1")
+                .args(&args[1..])
+                .output()
+                .unwrap();
+            assert_eq!(actual.status.code(), expected.status.code());
+            assert_eq!(actual.stdout, expected.stdout);
+            assert_eq!(actual.stderr, expected.stderr);
+            assert_eq!(std::fs::read_to_string(&path).unwrap(), expected_source);
+        }
+    }
+}
+
+#[test]
+fn short_output_reports_bare_evr_messages_with_unicode_columns() {
+    let fixture = Fixture::new();
+    let source = "Name: x\nLicense: MIT\nRequires: 日本語 = %version-%release\n%autochangelog\n";
+    let output = fixture.run(&["--lint", "--diagnostic-format", "short"], Some(source));
+    let text = String::from_utf8(output.stdout).unwrap();
+    assert!(
+        text.lines()
+            .any(|line| line.starts_with("<stdin>:3:17:") && line.ends_with("[use-evr]")),
+        "{text}"
+    );
+    assert!(text.contains("use %{evr} instead of %version-%release"));
 }
 
 #[test]

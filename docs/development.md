@@ -32,7 +32,6 @@ The implementation separates policy from transformations:
 - `src/path_macros.rs`: default path replacement table.
 - `src/format.rs`: structure-aware formatting.
 - `src/style.rs`: conservative text helpers shared with the linter.
-- `src/lint.rs`: compatibility APIs that call the shared rule engine.
 - `src/context.rs`, `src/rules/`, `src/engine.rs`: shared snapshots, rule traits,
   static enum dispatch, and atomic fix application; see [architecture](architecture.md).
 - `src/cli.rs`: the unified CLI, output backend selection, tracing, and stable-eyre errors.
@@ -40,14 +39,7 @@ The implementation separates policy from transformations:
 
 Rule detection lives in one file per rule under `src/rules/format/`,
 `src/rules/fixable/`, and `src/rules/check_only/`. `Context` stores parsing facts,
-not a cached result of another linter. `tests/legacy_lint.rs` preserves the
-original semantic regressions, while `tests/rules.rs` calls rules directly.
-`tests/output.rs` exercises output backends and error handling directly;
-`tests/unified_cli.rs` covers SARIF documents, URI escaping, Unicode/CRLF ranges,
-multiple files, and diagnostics after fixes.
-
-The legacy library `format()` API retains explicitly configured safe fixes for
-compatibility. New callers can use `Engine` and `FixMode` to select rule kinds.
+not a cached result of another linter.
 
 ## Coverage
 

@@ -1,12 +1,23 @@
-//! Original semantic regressions. These intentionally exclude the new aggregate
-//! formatting finding; complete-registry parity is tested in src/lint.rs.
-use rpmspecfmt::lint::Diagnostic;
+//! Semantic rule regressions exercised directly through the shared engine.
+use rpmspecfmt::diagnostic::Finding;
+use rpmspecfmt::engine::Engine;
+use rpmspecfmt::Config;
 
-fn lint(source: &str) -> Vec<Diagnostic> {
-    rpmspecfmt::lint::lint(source)
+fn lint(source: &str) -> Vec<Finding> {
+    Engine::new(Config::default())
+        .check(source)
+        .unwrap()
         .into_iter()
         .filter(|d| d.rule != "format")
         .collect()
+}
+
+fn line(source: &str, finding: &Finding) -> usize {
+    source[..finding.span.start]
+        .bytes()
+        .filter(|byte| *byte == b'\n')
+        .count()
+        + 1
 }
 
 fn rules(source: &str) -> Vec<&'static str> {
@@ -34,7 +45,7 @@ fn suggests_evr_for_dependency_tags() {
     let source = "Name: test\nVersion: 1\nRelease: 1\nSummary: test\nLicense: MIT\nRequires: foo = %{version}-%{release}\n\n%changelog\n";
     assert!(lint(source)
         .iter()
-        .any(|d| d.rule == "use-evr" && d.line == 6));
+        .any(|d| d.rule == "use-evr" && line(source, d) == 6));
 }
 
 #[test]
@@ -48,7 +59,7 @@ fn suggests_autosetup() {
     let source = "Name: test\nVersion: 1\nRelease: 1\nSummary: test\nLicense: MIT\n\n%prep\n%setup -q\n\n%changelog\n";
     assert!(lint(source)
         .iter()
-        .any(|d| d.rule == "use-autosetup" && d.line == 8));
+        .any(|d| d.rule == "use-autosetup" && line(source, d) == 8));
 }
 
 #[test]
@@ -72,7 +83,7 @@ fn reports_setup_once() {
 #[test]
 fn clean_spec_has_no_semantic_diagnostics() {
     let source = "Name: test\nVersion: 1\nRelease: 1\nSummary: test\nLicense: MIT\n\n%prep\n%autosetup\n\n%changelog\n* Sat Nov 07 2026 Tester <t@example.com> - 1\n- Initial\n";
-    assert_eq!(lint(source), [] as [Diagnostic; 0]);
+    assert_eq!(lint(source), [] as [Finding; 0]);
 }
 
 #[test]
@@ -93,7 +104,7 @@ fn keeps_tag_checks_but_does_not_guess_dependency_versions_after_parse_errors() 
 fn reports_new_style_rules_with_original_lines() {
     let source = "Name: x\nLicense: MIT\n%gometa\nBuildRequires: pkgconfig(foo) gcc >= 1\n%define feature 1\nRelease: 1%?dist\n\n%autochangelog\n";
     let found = lint(source);
-    for (rule, line) in [
+    for (rule, expected_line) in [
         ("unsafe-preamble", 3),
         ("buildrequires-one-per-line", 4),
         ("use-global", 5),
@@ -101,7 +112,9 @@ fn reports_new_style_rules_with_original_lines() {
         ("braced-macros", 6),
     ] {
         assert!(
-            found.iter().any(|d| d.rule == rule && d.line == line),
+            found
+                .iter()
+                .any(|d| d.rule == rule && line(source, d) == expected_line),
             "{found:?}"
         );
     }
@@ -110,7 +123,7 @@ fn reports_new_style_rules_with_original_lines() {
 #[test]
 fn accepts_one_rich_or_versioned_dependency() {
     let source = "Name: x\nLicense: MIT\nBuildRequires: (foo if bar)\nBuildRequires: pkgconfig(foo) >= 1\n%autochangelog\n";
-    assert_eq!(lint(source), [] as [Diagnostic; 0]);
+    assert_eq!(lint(source), [] as [Finding; 0]);
 }
 
 #[test]

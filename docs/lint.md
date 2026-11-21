@@ -123,10 +123,11 @@ not inspect dependency names/qualifiers or nested macro bodies. Damaged
 dependency subtrees are skipped without a text-search fallback; unrelated
 clean dependency subtrees can still be checked on an ERROR tree.
 
-## Old executable
+## Lint command alias
 
-`rpmspeclint` remains a thin alias for `rpmspecfmt --lint`. It defaults to short
-diagnostics for existing scripts; `--diagnostic-format rich` opts into Ariadne.
-An explicit `--diagnostic-format sarif` selects SARIF through the same backend.
-Its `--fix` option is equivalent to `rpmspecfmt --lint --fix`. There is no
-separate linter implementation or configuration search.
+`rpmspeclint` is a thin alias for `rpmspecfmt --lint`. Both commands use the same
+configuration, options, rich diagnostic default, and exit codes. Use
+`--diagnostic-format short` or `--diagnostic-format sarif` explicitly to select
+a machine-readable format. `rpmspeclint --fix` is equivalent to
+`rpmspecfmt --lint --fix`. There is no separate linter implementation or legacy
+lint library API; library users call `Engine::check()` instead.
