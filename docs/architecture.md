@@ -31,6 +31,13 @@ The parser never expands macros. An ERROR tree does not stop line-based
 checks. A normalized copy ending in a newline avoids artificial EOF errors;
 all diagnostics and edits still refer to the original source's byte offsets.
 
+`use-evr` is a `TreeRule`: it inspects complete dependency version fields and
+their macro/conditional nodes. An error-free subtree and unambiguous adjacent
+node boundaries are required. It never falls back to substring detection in
+damaged dependencies, nor traverses nested macro bodies looking for matches.
+Plain V-R expressions are not recommended for conversion when an epoch is
+declared; canonical optional E:V-R expressions are identified as a whole.
+
 ## Traits and dispatch
 
 ```rust,ignore
@@ -119,6 +126,25 @@ never applied, even if an implementation erroneously offers one.
 The CLI uses it to avoid a redundant final parse and to report correct line
 numbers after edits. Ariadne uses byte-indexed labels; short reports translate
 them to character-based columns, including Unicode input.
+
+## Diagnostic output backends
+
+`src/output/mod.rs` defines the public `DiagnosticOutput` trait. Each backend
+receives `write_file(path, source, findings)` for a source revision, then
+`finish()` once per invocation. Rendering is separate from rule inspection
+and fix application:
+
+- `src/output/rich.rs`: Ariadne source excerpts, streamed to stderr by the CLI.
+- `src/output/short.rs`: one-line diagnostics, streamed to stdout.
+- `src/output/sarif.rs`: collects results and emits a single SARIF 2.1.0 JSON
+  document to stdout, including the built-in rule catalog and available fixes.
+
+All backends accept a `Write` destination, so they can be tested independently
+with memory buffers or used by library callers. They validate UTF-8 byte
+ranges before rendering. Short and SARIF output share character-based source
+position conversion. The CLI selects one trait implementation for the whole
+invocation; SARIF is restricted to lint mode to avoid mixed stdout content.
+Adding a backend does not require modifying the engine or detectors.
 
 ## Configuration and observability
 

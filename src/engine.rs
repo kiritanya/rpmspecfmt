@@ -309,9 +309,13 @@ mod tests {
 
     #[test]
     fn parser_errors_do_not_disable_text_checks() {
-        let source = "Name: x\nURL: invalid\nLicense: MIT\nRequires: x = %{version}-%{release}\n%autochangelog\n";
+        let source = "Name: x\nRelease: 1%?dist\nURL: invalid\nLicense: MIT\nRequires: x = %{version}-%{release}\n%autochangelog\n";
         let findings = Engine::new(Config::default()).check(source).unwrap();
-        assert!(findings.iter().any(|finding| finding.rule == "use-evr"));
+        assert!(findings
+            .iter()
+            .any(|finding| finding.rule == "braced-macros"));
+        // The dependency was swallowed by an ERROR node; do not guess its EVR.
+        assert!(!findings.iter().any(|finding| finding.rule == "use-evr"));
     }
 
     #[test]

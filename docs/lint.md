@@ -1,7 +1,9 @@
 # Linter
 
 `rpmspecfmt --lint` checks semantic and style issues without expanding macros. It
-reads tags line by line, so it still works when tree-sitter reports errors.
+uses structural facts and text checks that can still run when tree-sitter
+reports errors. Semantic replacement recommendations such as `use-evr`
+require a recognized, error-free dependency subtree.
 
 ```sh
 rpmspecfmt --lint foo.spec
@@ -48,6 +50,32 @@ Each finding includes its stable rule ID:
 foo.spec:6:23: warning: use %{evr} instead of %{version}-%{release} [use-evr]
 ```
 
+For SARIF 2.1.0 JSON, use:
+
+```sh
+rpmspecfmt --lint --diagnostic-format sarif foo.spec bar.spec > results.sarif
+rpmspecfmt --lint --fix --diagnostic-format sarif foo.spec > remaining.sarif
+```
+
+SARIF requires `--lint` to avoid mixing JSON with formatted source or diffs.
+All files in one invocation appear in a single run/document on stdout, even
+when there are no findings (`results: []`). Logs and operational errors remain
+on stderr; colors do not affect JSON. Exit status remains `1` when findings
+exist, so CI scripts should distinguish that status from operational errors.
+
+Results include stable rule IDs and catalog indexes, warning severity,
+messages, and complete start/end ranges (including grouped multiline findings).
+Columns are one-based Unicode code points, explicitly declared with SARIF's
+`columnKind`. Paths are percent-encoded URI references; absolute paths use
+`file://` URIs and stdin uses the logical URI `%3Cstdin%3E`.
+
+Available safe fixes are represented as SARIF artifact changes and replacements
+against the reported source revision. CheckOnly results never offer fixes.
+With `--fix`, results refer to the rewritten files and contain only remaining
+findings. If reading, inspection, or fixing fails before serialization, no
+partial SARIF document is emitted (earlier files may already have been fixed
+with `--fix`). Output/write failures are reported as operational errors.
+
 | Exit status | Meaning |
 | --- | --- |
 | `0` | No remaining findings |
@@ -81,9 +109,24 @@ applies Fixable rules, never CheckOnly rules.
 `use-evr` requires the `%{evr}` macro. On Terra it comes from
 `anda-srpm-macros`.
 
+`%{evr}` already includes the optional epoch. For
+`%{?epoch:%{epoch}:}%{version}-%{release}`, the recommendation applies to the
+**entire expression**, not just the version-release suffix: retaining the
+explicit epoch prefix would duplicate the epoch. Plain version-release
+recommendations are suppressed when an `Epoch:` tag or an `epoch` definition
+is present. Nested macro fragments, unrecognized epoch prefixes, and version
+expressions with additional prefixes/suffixes are left for manual review
+without a replacement recommendation. `use-evr` never supplies an automatic fix.
+Detection inspects dependency version fields, scalar macro nodes, and the
+conditional epoch subtree, not a substring search through tag text. It does
+not inspect dependency names/qualifiers or nested macro bodies. Damaged
+dependency subtrees are skipped without a text-search fallback; unrelated
+clean dependency subtrees can still be checked on an ERROR tree.
+
 ## Old executable
 
 `rpmspeclint` remains a thin alias for `rpmspecfmt --lint`. It defaults to short
 diagnostics for existing scripts; `--diagnostic-format rich` opts into Ariadne.
+An explicit `--diagnostic-format sarif` selects SARIF through the same backend.
 Its `--fix` option is equivalent to `rpmspecfmt --lint --fix`. There is no
 separate linter implementation or configuration search.

@@ -24,7 +24,7 @@ rpmspecfmt --lint --fix --config style.toml foo.spec
 | `--max-width N` | Wrapping width, default `100`; alias `--wrap-width` |
 | `--lint` | Inspect Format, Fixable, and CheckOnly rules without rewriting |
 | `--lint --fix` | Apply Format/Fixable changes in place and report remaining findings |
-| `--diagnostic-format rich\|short` | Ariadne excerpts (stderr) or one-line diagnostics (stdout) |
+| `--diagnostic-format rich\|short\|sarif` | Ariadne excerpts (stderr), one-line diagnostics (stdout), or SARIF 2.1.0 JSON (stdout; requires `--lint`) |
 | `--color auto\|always\|never` | Diagnostic/log colors |
 | `-v` / `-q` | Increase/decrease tracing verbosity; does not hide findings |
 

@@ -278,3 +278,254 @@ fn repeated_alignment_warnings_render_as_one_multiline_report() {
         "{output}"
     );
 }
+
+#[test]
+fn sarif_collects_multiple_files_and_grouped_ranges_in_one_document() {
+    let fixture = Fixture::new();
+    let source =
+        "%bcond feature 1\nName:      日本😀\nVersion:   1\nLicense:   MIT\n%autochangelog\n";
+    let path = fixture.write("日本 #?.spec", source);
+    fixture.write("second.spec", "Name: x\n");
+    let output = fixture.run(
+        &[
+            "--lint",
+            "--diagnostic-format",
+            "sarif",
+            "--color",
+            "always",
+            "日本 #?.spec",
+            "second.spec",
+        ],
+        None,
+    );
+    assert_eq!(output.status.code(), Some(1), "{output:?}");
+    assert_eq!(output.stderr, b"");
+    let document: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(document["version"], "2.1.0");
+    let runs = document["runs"].as_array().unwrap();
+    assert_eq!(runs.len(), 1);
+    let run = &runs[0];
+    assert_eq!(run["tool"]["driver"]["name"], "rpmspecfmt");
+    assert_eq!(run["columnKind"], "unicodeCodePoints");
+    let rules = run["tool"]["driver"]["rules"].as_array().unwrap();
+    assert_eq!(rules.len(), rpmspecfmt::rules::builtins().len());
+    let results = run["results"].as_array().unwrap();
+    for result in results {
+        assert_eq!(
+            rules[usize::try_from(result["ruleIndex"].as_u64().unwrap()).unwrap()]["id"],
+            result["ruleId"]
+        );
+        assert_eq!(result["level"], "warning");
+    }
+    let alignment = results
+        .iter()
+        .find(|result| result["ruleId"] == "tag-alignment")
+        .unwrap();
+    let physical = &alignment["locations"][0]["physicalLocation"];
+    assert_eq!(
+        physical["artifactLocation"]["uri"],
+        "%E6%97%A5%E6%9C%AC%20%23%3F.spec"
+    );
+    assert_eq!(
+        physical["region"],
+        serde_json::json!({ "startLine": 2, "startColumn": 1, "endLine": 4, "endColumn": 15 })
+    );
+    assert!(results
+        .iter()
+        .any(
+            |result| result["locations"][0]["physicalLocation"]["artifactLocation"]["uri"]
+                == "second.spec"
+        ));
+    assert_eq!(std::fs::read_to_string(path).unwrap(), source);
+}
+
+#[test]
+fn sarif_unicode_crlf_regions_and_fix_replacements_match_the_input() {
+    let fixture = Fixture::new();
+    let source = "Name: 日本😀\r\nLicense: MIT\r\nSource0: 日本😀/%version\r\n%autochangelog\r\n";
+    let output = fixture.run(&["--lint", "--diagnostic-format", "sarif"], Some(source));
+    assert_eq!(output.status.code(), Some(1));
+    let document: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let result = document["runs"][0]["results"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|result| result["ruleId"] == "braced-macros")
+        .unwrap();
+    assert_eq!(
+        result["locations"][0]["physicalLocation"]["artifactLocation"]["uri"],
+        "%3Cstdin%3E"
+    );
+    assert_eq!(
+        result["locations"][0]["physicalLocation"]["region"],
+        serde_json::json!({ "startLine": 3, "startColumn": 14, "endLine": 3, "endColumn": 22 })
+    );
+    let replacement = &result["fixes"][0]["artifactChanges"][0]["replacements"][0];
+    assert_eq!(
+        replacement["deletedRegion"],
+        serde_json::json!({ "startLine": 1, "startColumn": 1, "endLine": 5, "endColumn": 1 })
+    );
+    assert!(replacement["insertedContent"]["text"]
+        .as_str()
+        .unwrap()
+        .contains("%{version}"));
+}
+
+#[test]
+fn sarif_empty_results_are_emitted_for_clean_files_and_empty_stdin() {
+    let fixture = Fixture::new();
+    let clean = rpmspecfmt::engine::Engine::new(rpmspecfmt::Config::default())
+        .apply(
+            "Name: x\nLicense: MIT\n%autochangelog\n",
+            rpmspecfmt::engine::FixMode::FormatOnly,
+        )
+        .unwrap();
+    fixture.write("clean.spec", &clean);
+    for output in [
+        fixture.run(
+            &["--lint", "--diagnostic-format", "sarif", "clean.spec"],
+            None,
+        ),
+        fixture.run(&["--lint", "--diagnostic-format", "sarif"], Some("")),
+    ] {
+        assert!(output.status.success(), "{output:?}");
+        let document: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(document["runs"][0]["results"], serde_json::json!([]));
+    }
+}
+
+#[test]
+fn sarif_fix_reports_positions_in_the_fixed_revision() {
+    let fixture = Fixture::new();
+    let source = "Name: x\nLicense: MIT\n%define feature 1\nRequires: x = %{version}-%{release}\n%autochangelog\n";
+    let path = fixture.write("input.spec", source);
+    let output = fixture.run(
+        &[
+            "--lint",
+            "--fix",
+            "--diagnostic-format",
+            "sarif",
+            "input.spec",
+        ],
+        None,
+    );
+    assert_eq!(output.status.code(), Some(1));
+    let fixed = std::fs::read_to_string(path).unwrap();
+    assert_ne!(fixed, source);
+    let document: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let results = document["runs"][0]["results"].as_array().unwrap();
+    assert_eq!(results.len(), 1);
+    let result = &results[0];
+    assert_eq!(result["ruleId"], "use-evr");
+    let offset = fixed.find("%{version}").unwrap();
+    let expected_line = fixed[..offset]
+        .bytes()
+        .filter(|byte| *byte == b'\n')
+        .count()
+        + 1;
+    assert_eq!(
+        result["locations"][0]["physicalLocation"]["region"]["startLine"],
+        expected_line
+    );
+    assert!(result.get("fixes").is_none());
+    let second = fixture.run(
+        &[
+            "--lint",
+            "--fix",
+            "--diagnostic-format",
+            "sarif",
+            "input.spec",
+        ],
+        None,
+    );
+    assert_eq!(output.stdout, second.stdout);
+}
+
+#[test]
+fn sarif_requires_lint_and_does_not_emit_partial_documents_on_input_errors() {
+    let fixture = Fixture::new();
+    let source = "Name: x\n";
+    let path = fixture.write("input.spec", source);
+    for args in [
+        vec!["--diagnostic-format", "sarif", "-w", "input.spec"],
+        vec![
+            "--lint",
+            "--diagnostic-format",
+            "sarif",
+            "input.spec",
+            "missing.spec",
+        ],
+    ] {
+        let output = fixture.run(&args, None);
+        assert_eq!(output.status.code(), Some(2));
+        assert_eq!(output.stdout, b"");
+        assert_ne!(output.stderr, b"");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), source);
+    }
+}
+
+#[test]
+fn legacy_alias_accepts_explicit_sarif_output() {
+    let fixture = Fixture::new();
+    fixture.write("input.spec", "Name: x\n");
+    let output = Command::new(env!("CARGO_BIN_EXE_rpmspeclint"))
+        .current_dir(&fixture.0)
+        .args(["--diagnostic-format=sarif", "input.spec"])
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    let document: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(document["runs"][0]["tool"]["driver"]["name"], "rpmspecfmt");
+}
+
+#[test]
+fn sarif_keeps_tracing_and_colors_off_stdout() {
+    let fixture = Fixture::new();
+    fixture.write("input.spec", "Name: x\n");
+    let output = fixture
+        .command()
+        .env_remove("RUST_LOG")
+        .args([
+            "--lint",
+            "--diagnostic-format",
+            "sarif",
+            "--color",
+            "always",
+            "-vv",
+            "input.spec",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    let document: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(document["version"], "2.1.0");
+    assert!(!output.stdout.contains(&0x1b));
+    assert!(String::from_utf8(output.stderr).unwrap().contains("DEBUG"));
+}
+
+#[test]
+fn epoch_aware_evr_warning_is_explicit_in_rich_and_sarif_output() {
+    let fixture = Fixture::new();
+    let expression = "%{?epoch:%{epoch}:}%{version}-%{release}";
+    let source = format!("Name: x\nLicense: MIT\nEpoch: 1\nProvides: x = {expression}\nRequires: y = {expression}\n%autochangelog\n");
+    let rich = fixture.run(&["--lint", "--color", "never"], Some(&source));
+    let text = String::from_utf8(rich.stderr).unwrap();
+    assert!(text.contains("already includes the epoch"), "{text}");
+    assert!(
+        text.contains(&format!("entire {expression} expression")),
+        "{text}"
+    );
+    let sarif = fixture.run(&["--lint", "--diagnostic-format", "sarif"], Some(&source));
+    let document: serde_json::Value = serde_json::from_slice(&sarif.stdout).unwrap();
+    let result = document["runs"][0]["results"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|result| result["ruleId"] == "use-evr")
+        .unwrap();
+    assert!(result["message"]["text"]
+        .as_str()
+        .unwrap()
+        .contains(&format!("entire {expression} expression")));
+    assert!(result.get("fixes").is_none());
+}

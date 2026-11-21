@@ -82,10 +82,10 @@ fn ignores_tag_like_text_in_sections() {
 }
 
 #[test]
-fn finds_tags_after_parse_errors() {
+fn keeps_tag_checks_but_does_not_guess_dependency_versions_after_parse_errors() {
     let source = "Name: test\nVersion: 1\nRelease: 1\nSummary: test\nURL: example.com\nLicense: MIT\nRequires: foo = %{version}-%{release}\n\n%changelog\n";
     let found = lint(source);
-    assert!(found.iter().any(|d| d.rule == "use-evr" && d.line == 7));
+    assert!(!found.iter().any(|d| d.rule == "use-evr"));
     assert!(!found.iter().any(|d| d.rule == "missing-license"));
 }
 

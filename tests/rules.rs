@@ -1,7 +1,8 @@
 use rpmspecfmt::context::Context;
 use rpmspecfmt::engine::Engine;
 use rpmspecfmt::rules::{
-    self, BracedMacros, BuildRequiresOnePerLine, LineRule, Rule, RuleKind, UseEvr, UseGlobal,
+    self, BracedMacros, BuildRequiresOnePerLine, LineRule, Rule, RuleKind, TreeRule, UseEvr,
+    UseGlobal,
 };
 use rpmspecfmt::Config;
 
@@ -53,22 +54,14 @@ fn line_rules_detect_problems_directly_from_source() {
 }
 
 #[test]
-fn text_checks_survive_parser_errors_without_diagnosing_body_text() {
+fn tree_checks_accept_valid_dependencies_after_errors_without_diagnosing_body_text() {
     let config = Config::default();
-    let source = "Name: x\nURL: invalid\nRequires: x = %{version}-%{release}\n%description\nRequires: text = %{version}-%{release}\n";
+    let source = "Name: x\nURL: invalid\n%package libs\nRequires: x = %{version}-%{release}\n%description libs\nRequires: text = %{version}-%{release}\n";
     let context = Context::new(source, &config).unwrap();
     assert!(context.tree.root_node().has_error());
-    assert_eq!(
-        UseEvr
-            .check_line(&context.lines[2], &context)
-            .unwrap()
-            .len(),
-        1
-    );
-    assert_eq!(
-        UseEvr.check_line(&context.lines[4], &context).unwrap(),
-        [] as [rpmspecfmt::diagnostic::Finding; 0]
-    );
+    let findings = UseEvr.check_tree(&context.tree, &context).unwrap();
+    assert_eq!(findings.len(), 1);
+    assert_eq!(context.location(findings[0].span.start).0, 4);
 }
 
 #[test]
@@ -108,4 +101,93 @@ fn repeated_macro_findings_share_a_block_and_keep_the_fix() {
         .apply(source, rpmspecfmt::engine::FixMode::FormatOnly)
         .unwrap();
     assert!(fixed.contains("%{version}") && fixed.contains("%{release}"));
+}
+
+#[test]
+fn evr_recommendations_cover_the_entire_optional_epoch_expression() {
+    let config = Config::default();
+    for expression in [
+        "%{?epoch:%{epoch}:}%{version}-%{release}",
+        "%{?epoch:%{epoch}:}%version-%release",
+    ] {
+        let source = format!("Name: x\nEpoch: 1\nRequires: x = {expression}\n");
+        let context = Context::new(&source, &config).unwrap();
+        let findings = UseEvr.check_tree(&context.tree, &context).unwrap();
+        assert_eq!(findings.len(), 1);
+        assert_eq!(&source[findings[0].span.clone()], expression);
+        assert!(findings[0].message.contains(expression));
+        assert!(findings[0].message.contains("already includes the epoch"));
+        assert!(findings[0].fix.is_none());
+        // Static messages must also be representable by the compatibility API.
+        let legacy = rpmspecfmt::lint::lint_with_config(&source, &config).unwrap();
+        assert!(legacy
+            .iter()
+            .any(|finding| finding.rule == "use-evr" && finding.message.contains(expression)));
+    }
+}
+
+#[test]
+fn evr_does_not_recommend_adding_epoch_or_replacing_nested_fragments() {
+    let engine = Engine::new(Config::default());
+    for source in [
+        "Name: x\nEpoch: 1\nRequires: x = %{version}-%{release}\n",
+        "%global epoch 1\nName: x\nRequires: x = %version-%release\n",
+        "Name: x\nRequires: x = %{epoch}:%{version}-%{release}\n",
+        "Name: x\nRequires: x = 1:%{version}-%{release}\n",
+        "Name: x\nRequires: x = %{?feature:%{version}-%{release}}\n",
+        "Name: x\nRequires: x = %(echo %{version}-%{release})\n",
+        "Name: x\nRequires: x = %%{version}-%{release}\n",
+        "Name: x\nRequires: x = prefix-%{version}-%{release}\n",
+        "Name: x\nRequires: x = %{version}-%{release}%{?suffix}\n",
+        "Name: x\nRequires: x = %{?epoch:0:}%{version}-%{release}\n",
+    ] {
+        let findings = engine.check(source).unwrap();
+        assert!(
+            !findings.iter().any(|finding| finding.rule == "use-evr"),
+            "{source}\n{findings:?}"
+        );
+    }
+}
+
+#[test]
+fn plain_evr_recommendations_keep_complete_ranges_without_an_epoch() {
+    let config = Config::default();
+    for expression in ["%{version}-%{release}", "%version-%release"] {
+        let source = format!("Name: x\nRequires: (x >= {expression} if y)\n");
+        let context = Context::new(&source, &config).unwrap();
+        let findings = UseEvr.check_tree(&context.tree, &context).unwrap();
+        assert_eq!(findings.len(), 1);
+        assert_eq!(&source[findings[0].span.clone()], expression);
+        assert!(findings[0].fix.is_none());
+    }
+}
+
+#[test]
+fn evr_tree_rule_checks_qualified_version_fields_not_names_or_macro_arguments() {
+    let config = Config::default();
+    let source = "Name: x\nRequires(post): pkgconfig(x) = %{version}-%{release}\nProvides: capability(%{version}-%{release})\nRequires: %{version}-%{release}\nRequires: x = %{expand:%{version}-%{release}}\n";
+    let context = Context::new(source, &config).unwrap();
+    let findings = UseEvr.check_tree(&context.tree, &context).unwrap();
+    assert_eq!(findings.len(), 1, "{findings:?}");
+    assert_eq!(context.location(findings[0].span.start).0, 2);
+    assert_eq!(&source[findings[0].span.clone()], "%{version}-%{release}");
+}
+
+#[test]
+fn evr_tree_rule_skips_malformed_dependencies_without_a_text_fallback() {
+    let engine = Engine::new(Config::default());
+    for source in [
+        "Name: x\nRequires: x = %{version}-%{release\n",
+        "Name: x\nRequires: x = %{version}-%{release}suffix\n",
+        "Name: x\nRequires: x = %{version}-%{release} %{?broken:\n",
+    ] {
+        assert!(
+            !engine
+                .check(source)
+                .unwrap()
+                .iter()
+                .any(|finding| finding.rule == "use-evr"),
+            "{source}"
+        );
+    }
 }

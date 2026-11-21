@@ -1,7 +1,6 @@
 use std::io::{IsTerminal, Read};
 use std::path::{Path, PathBuf};
 
-use ariadne::{IndexType, Label, Report, ReportKind, Source};
 use clap::{ColorChoice, Parser, ValueEnum};
 use clap_verbosity_flag::{Verbosity, WarnLevel};
 use similar::TextDiff;
@@ -9,15 +8,15 @@ use stable_eyre::eyre::{bail, eyre, Result, WrapErr};
 use tracing_subscriber::EnvFilter;
 
 use crate::config::FileConfig;
-use crate::diagnostic::Finding;
 use crate::engine::{Engine, FixMode};
-use crate::rules::RuleKind;
+use crate::output::{DiagnosticOutput, RichOutput, SarifOutput, ShortOutput};
 use crate::Config;
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
 enum DiagnosticFormat {
     Rich,
     Short,
+    Sarif,
 }
 
 #[derive(Debug, Parser)]
@@ -66,7 +65,7 @@ struct Args {
     /// Maximum wrapping width.
     #[arg(long, visible_alias = "wrap-width")]
     max_width: Option<usize>,
-    /// Diagnostic rendering: source excerpts or machine-readable lines.
+    /// Diagnostic rendering: source excerpts, one-line diagnostics, or SARIF JSON.
     #[arg(long, value_enum, default_value = "rich")]
     diagnostic_format: DiagnosticFormat,
     /// Diagnostic and log colors.
@@ -169,6 +168,9 @@ fn build_config(args: &Args) -> Result<Config> {
 }
 
 fn run(args: &Args, color: bool) -> Result<i32> {
+    if matches!(args.diagnostic_format, DiagnosticFormat::Sarif) && !args.lint {
+        bail!("--diagnostic-format sarif requires --lint");
+    }
     if args.files.is_empty() && args.fix {
         bail!("--fix requires at least one spec file; stdin is lint-only");
     }
@@ -176,24 +178,44 @@ fn run(args: &Args, color: bool) -> Result<i32> {
         bail!("--write cannot be used with stdin");
     }
     let engine = Engine::new(build_config(args)?);
+    let mut output: Box<dyn DiagnosticOutput> = match args.diagnostic_format {
+        DiagnosticFormat::Rich => Box::new(RichOutput::new(std::io::stderr(), color)),
+        DiagnosticFormat::Short => Box::new(ShortOutput::new(std::io::stdout())),
+        DiagnosticFormat::Sarif => Box::new(SarifOutput::new(std::io::stdout())),
+    };
     if args.files.is_empty() {
         let mut source = String::new();
         std::io::stdin()
             .read_to_string(&mut source)
             .wrap_err("failed to read stdin")?;
-        return process(Path::new("<stdin>"), &source, args, &engine, color).map(i32::from);
+        let found = process(
+            Path::new("<stdin>"),
+            &source,
+            args,
+            &engine,
+            output.as_mut(),
+        )?;
+        output.finish()?;
+        return Ok(i32::from(found));
     }
     let mut found = false;
     for path in &args.files {
         let source = std::fs::read_to_string(path)
             .wrap_err_with(|| format!("failed to read {}", path.display()))?;
-        found |= process(path, &source, args, &engine, color)?;
+        found |= process(path, &source, args, &engine, output.as_mut())?;
     }
+    output.finish()?;
     Ok(i32::from(found))
 }
 
 /// Return whether the selected check/lint mode should exit with findings.
-fn process(path: &Path, source: &str, args: &Args, engine: &Engine, color: bool) -> Result<bool> {
+fn process(
+    path: &Path,
+    source: &str,
+    args: &Args,
+    engine: &Engine,
+    output: &mut dyn DiagnosticOutput,
+) -> Result<bool> {
     tracing::info!(path = %path.display(), lint = args.lint, fix = args.fix, "processing spec");
     if args.lint {
         let (fixed, findings) = if args.fix {
@@ -206,7 +228,7 @@ fn process(path: &Path, source: &str, args: &Args, engine: &Engine, color: bool)
             std::fs::write(path, &fixed)
                 .wrap_err_with(|| format!("failed to write {}", path.display()))?;
         }
-        render_findings(path, &fixed, &findings, args.diagnostic_format, color)?;
+        output.write_file(path, &fixed, &findings)?;
         return Ok(!findings.is_empty());
     }
     let outcome = engine.apply_with_findings(source, FixMode::FormatOnly)?;
@@ -217,13 +239,7 @@ fn process(path: &Path, source: &str, args: &Args, engine: &Engine, color: bool)
         .into_iter()
         .filter(|d| d.rule == "unsafe-preamble")
         .collect();
-    render_findings(
-        path,
-        source,
-        &unsafe_findings,
-        args.diagnostic_format,
-        color,
-    )?;
+    output.write_file(path, source, &unsafe_findings)?;
     if args.check {
         if changed {
             eprintln!("would reformat {}", path.display());
@@ -247,58 +263,4 @@ fn process(path: &Path, source: &str, args: &Args, engine: &Engine, color: bool)
         print!("{formatted}");
     }
     Ok(args.check && changed)
-}
-
-fn render_findings(
-    path: &Path,
-    source: &str,
-    findings: &[Finding],
-    format: DiagnosticFormat,
-    color: bool,
-) -> Result<()> {
-    if findings.is_empty() {
-        return Ok(());
-    }
-    let path = path.display().to_string();
-    for finding in findings {
-        match format {
-            DiagnosticFormat::Short => {
-                let offset = finding.span.start.min(source.len());
-                let prefix = &source[..offset];
-                let line = prefix.bytes().filter(|byte| *byte == b'\n').count() + 1;
-                let column = prefix.rsplit('\n').next().unwrap_or("").chars().count() + 1;
-                println!(
-                    "{path}:{line}:{column}: warning: {} [{}]",
-                    finding.message, finding.rule
-                );
-            }
-            DiagnosticFormat::Rich => {
-                let note = match (finding.kind, finding.fix.is_some()) {
-                    (RuleKind::CheckOnly, _) => "manual review required",
-                    (RuleKind::Format, _) => "auto-formatting available",
-                    (_, true) => "safe fix available: rpmspecfmt --lint --fix FILE",
-                    (_, false) => {
-                        "automatic fix unavailable for this source; manual review required"
-                    }
-                };
-                Report::build(ReportKind::Warning, (path.as_str(), finding.span.clone()))
-                    .with_code(finding.rule)
-                    .with_message(&finding.message)
-                    .with_config(
-                        ariadne::Config::default()
-                            .with_color(color)
-                            .with_index_type(IndexType::Byte),
-                    )
-                    .with_label(
-                        Label::new((path.as_str(), finding.span.clone()))
-                            .with_message(&finding.message),
-                    )
-                    .with_note(note)
-                    .finish()
-                    .eprint((path.as_str(), Source::from(source)))
-                    .wrap_err("failed to write diagnostic")?;
-            }
-        }
-    }
-    Ok(())
 }

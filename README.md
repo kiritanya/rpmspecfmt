@@ -21,6 +21,7 @@ rpmspecfmt --diff foo.spec       # show a unified diff
 rpmspecfmt < foo.spec            # stdin to stdout
 rpmspecfmt --lint foo.spec       # report formatting and lint findings
 rpmspecfmt --lint --fix foo.spec # apply safe fixes, then report what remains
+rpmspecfmt --lint --diagnostic-format sarif foo.spec > results.sarif
 ```
 
 ## Development checks
